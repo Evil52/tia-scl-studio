@@ -363,6 +363,62 @@ namespace TiaSclStudio.EndToEnd.Tests
             }
         }
 
+        [Fact]
+        public void UdtLibraryCardWithAMemberMaterializesWithoutADispatcherBindingFailure()
+        {
+            UdtLibraryWindow window = null;
+            Exception dispatcherFailure = null;
+            System.Windows.Threading.DispatcherUnhandledExceptionEventHandler handler =
+                (sender, eventArgs) =>
+                {
+                    dispatcherFailure = eventArgs.Exception;
+                    eventArgs.Handled = true;
+                };
+
+            try
+            {
+                _host.Invoke(() =>
+                {
+                    Application.Current.DispatcherUnhandledException += handler;
+                    var project = new DiagramProject();
+                    project.Plant.DataTypes.Add(new UdtDefinition
+                    {
+                        Name = "Payload",
+                        Members = new List<UdtMember>
+                        {
+                            new UdtMember("Value", "Bool")
+                        }
+                    });
+
+                    window = new UdtLibraryWindow(project);
+                    window.Show();
+                    window.UpdateLayout();
+                });
+
+                _host.DrainDispatcher();
+                _host.Invoke(() =>
+                {
+                    var list = MainWindowProbe.Element<ListBox>(window, "DataTypeList");
+                    list.UpdateLayout();
+                    Assert.NotNull(list.ItemContainerGenerator.ContainerFromIndex(0));
+                });
+                _host.DrainDispatcher();
+
+                Assert.Null(dispatcherFailure);
+            }
+            finally
+            {
+                _host.Invoke(() =>
+                {
+                    Application.Current.DispatcherUnhandledException -= handler;
+                    if (window != null)
+                    {
+                        window.Close();
+                    }
+                });
+            }
+        }
+
         private static string Fingerprint(CallSheet sheet)
         {
             return string.Join(

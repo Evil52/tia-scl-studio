@@ -126,7 +126,7 @@
                                            FontFamily="Consolas"
                                            FontSize="9"
                                            Foreground="{StaticResource TextDimBrush}">
-                                    <Run Text="{Binding Members.Count}" /><Run Text=" полей" />
+                                    <Run Text="{Binding Members.Count, Mode=OneWay, FallbackValue=0, TargetNullValue=0}" /><Run Text=" полей" />
                                 </TextBlock>
                             </StackPanel>
                         </Grid>
