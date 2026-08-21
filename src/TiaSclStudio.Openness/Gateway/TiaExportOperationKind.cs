@@ -10,6 +10,9 @@ namespace TiaSclStudio.Openness.Gateway
         TransactionalImport = 5,
         SetBlockOwnership = 6,
         Compile = 7,
-        SaveProject = 8
+        SaveProject = 8,
+        ReopenProject = 9,
+        VerifyReadback = 10,
+        ReuseExistingDataType = 11
     }
 }

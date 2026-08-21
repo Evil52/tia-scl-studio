@@ -1193,6 +1193,16 @@
                                       Content="Сохранить проект TIA после экспорта"
                                       Checked="OnlineTarget_Changed"
                                       Unchecked="OnlineTarget_Changed" />
+                            <CheckBox x:Name="VerifySavedExportAfterReopenCheckBox"
+                                      Margin="0,0,18,7"
+                                      VerticalAlignment="Center"
+                                      IsChecked="False"
+                                      IsEnabled="False"
+                                      Foreground="{StaticResource TextBrush}"
+                                      Content="После сохранения открыть заново и проверить"
+                                      ToolTip="Только для TIA без интерфейса: закрыть сохранённый проект, снова открыть тот же .apNN и проверить созданные объекты"
+                                      Checked="OnlineTarget_Changed"
+                                      Unchecked="OnlineTarget_Changed" />
                             <CheckBox x:Name="AllowTagUpdatesCheckBox"
                                       Margin="0,0,18,7"
                                       VerticalAlignment="Center"

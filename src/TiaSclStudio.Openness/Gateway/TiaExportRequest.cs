@@ -44,6 +44,33 @@ namespace TiaSclStudio.Openness.Gateway
             string ownershipMarker,
             bool allowOwnedBlockOverwrite,
             bool saveProjectAfterExport)
+            : this(
+                projectPath,
+                sources,
+                compileAfterImport,
+                targetDeviceName,
+                targetSoftwareName,
+                tags,
+                allowTagUpdates,
+                ownershipMarker,
+                allowOwnedBlockOverwrite,
+                saveProjectAfterExport,
+                false)
+        {
+        }
+
+        public TiaExportRequest(
+            string projectPath,
+            IEnumerable<TiaSourceFile> sources,
+            bool compileAfterImport,
+            string targetDeviceName,
+            string targetSoftwareName,
+            IEnumerable<TiaPlcTag> tags,
+            bool allowTagUpdates,
+            string ownershipMarker,
+            bool allowOwnedBlockOverwrite,
+            bool saveProjectAfterExport,
+            bool verifySavedExportAfterReopen)
         {
             if (sources == null)
             {
@@ -78,6 +105,7 @@ namespace TiaSclStudio.Openness.Gateway
                 : ownershipMarker.Trim();
             AllowOwnedBlockOverwrite = allowOwnedBlockOverwrite;
             SaveProjectAfterExport = saveProjectAfterExport;
+            VerifySavedExportAfterReopen = verifySavedExportAfterReopen;
         }
 
         public string ProjectPath { get; }
@@ -99,5 +127,11 @@ namespace TiaSclStudio.Openness.Gateway
         public bool AllowOwnedBlockOverwrite { get; }
 
         public bool SaveProjectAfterExport { get; }
+
+        /// <summary>
+        /// Requests the fail-closed save, close/reopen and readback verification flow.
+        /// The legacy gateway permits it only for an adapter-owned headless session.
+        /// </summary>
+        public bool VerifySavedExportAfterReopen { get; }
     }
 }

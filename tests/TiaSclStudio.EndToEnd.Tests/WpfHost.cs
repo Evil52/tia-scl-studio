@@ -141,6 +141,13 @@ namespace TiaSclStudio.EndToEnd.Tests
             return (T)field.GetValue(window);
         }
 
+        public static void SetField<T>(Window window, string name, T value)
+        {
+            var field = window.GetType().GetField(name, Instance);
+            Assert.True(field != null, "MainWindow has no field named " + name + ".");
+            field.SetValue(window, value);
+        }
+
         public static object Call(Window window, string name, params object[] arguments)
         {
             var method = window.GetType().GetMethod(name, Instance);

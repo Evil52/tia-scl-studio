@@ -69,6 +69,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="LegacyExportReadbackPolicy.cs" />
     <Compile Include="LegacyLibraryReadbackPolicy.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SclSourceInspector.cs" />

@@ -43,6 +43,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
 
         private static readonly object PreservedSessionsLock = new object();
         private static readonly IList<TiaPortal> PreservedSessions = new List<TiaPortal>();
+        private static bool releaseFaultRequiresApplicationRestart;
         private readonly object syncRoot = new object();
         private readonly OpennessInstallation installation;
         private readonly SiemensAssemblyResolver assemblyResolver;
@@ -55,6 +56,8 @@ namespace TiaSclStudio.Openness.Legacy.V17
         private bool projectOpenedByAdapter;
         private bool portalStartedByAdapter;
         private bool committedUnsavedChanges;
+        private bool committedUnsavedChangesObservedByPortal;
+        private bool transactionCommitStateAmbiguous;
         private TiaPortalMode? connectedPortalMode;
         private bool disposed;
         private string selectedDeviceName = string.Empty;
@@ -109,12 +112,22 @@ namespace TiaSclStudio.Openness.Legacy.V17
 
                 try
                 {
-                    if (!ReleaseConnection(diagnostics, false))
+                    LegacyConnectionReleaseAction releaseAction;
+                    if (!ReleaseConnection(diagnostics, false, out releaseAction))
                     {
+                        var releaseFaulted = IsReleaseFaulted();
+                        var retainedSessionCanExport =
+                            LegacyConnectionReleasePolicy.CanContinueCurrentSessionAfterBlockedReconnect(
+                                releaseAction,
+                                tiaPortal != null,
+                                project != null,
+                                plcSoftware != null);
                         status = CreateStatus(
-                            true,
-                            project != null && plcSoftware != null,
-                            BuildConnectionDescription(),
+                            !releaseFaulted && tiaPortal != null,
+                            retainedSessionCanExport,
+                            releaseFaulted
+                                ? "TIA Portal session lifecycle is blocked; restart TIA SCL Studio"
+                                : BuildConnectionDescription(),
                             diagnostics);
                         return status;
                     }
@@ -222,9 +235,13 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     }
 
                     status = CreateStatus(
-                        !released && tiaPortal != null,
+                        !released && !IsReleaseFaulted() && tiaPortal != null,
                         false,
-                        released ? "TIA Portal connection failed" : BuildConnectionDescription(),
+                        released
+                            ? "TIA Portal connection failed"
+                            : IsReleaseFaulted()
+                                ? "TIA Portal session lifecycle is blocked; restart TIA SCL Studio"
+                                : BuildConnectionDescription(),
                         diagnostics);
                     return status;
                 }
@@ -579,7 +596,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 }
                 catch (EngineeringSecurityException)
                 {
-                    PreserveCurrentSessionWithoutApiCalls();
+                    QuarantineCurrentSessionWithoutApiCalls();
                 }
                 finally
                 {
@@ -2124,6 +2141,27 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 .FirstOrDefault() ?? string.Empty;
         }
 
+        private static string ReadPlcTagWriteLanguageComment(
+            PlcTag tag,
+            Language editingLanguage,
+            Language referenceLanguage)
+        {
+            if (tag == null)
+            {
+                throw new ArgumentNullException(nameof(tag));
+            }
+
+            var language = editingLanguage ?? referenceLanguage;
+            var comment = tag.Comment;
+            if (language == null || comment == null || comment.Items == null)
+            {
+                return string.Empty;
+            }
+
+            var item = comment.Items.Find(language);
+            return item == null || item.Text == null ? string.Empty : item.Text;
+        }
+
         private static void ValidateTagCatalogField(string value, string fieldName)
         {
             if (value != null && value.Length > LegacyLibraryReadbackPolicy.MaximumTagFieldCharacters)
@@ -2497,7 +2535,29 @@ namespace TiaSclStudio.Openness.Legacy.V17
             IList<OpennessDiagnostic> diagnostics,
             out long sourceBytes)
         {
-            if (candidate.ExternalSourceGroup == null)
+            var text = GenerateEngineeringSource(
+                candidate.SourceObject,
+                candidate.ExternalSourceGroup,
+                LegacyLibraryReadbackPolicy.GetSourceExtension(candidate.Kind),
+                candidate.Location,
+                diagnostics);
+            sourceBytes = new UTF8Encoding(false, true).GetByteCount(text);
+            return text;
+        }
+
+        private static string GenerateEngineeringSource(
+            IGenerateSource sourceObject,
+            PlcExternalSourceSystemGroup externalSourceGroup,
+            string extension,
+            string location,
+            IList<OpennessDiagnostic> diagnostics)
+        {
+            if (sourceObject == null)
+            {
+                throw new ArgumentNullException(nameof(sourceObject));
+            }
+
+            if (externalSourceGroup == null)
             {
                 throw new InvalidOperationException(
                     "The PLC object scope does not expose an external-source system group.");
@@ -2508,15 +2568,15 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 "TiaSclStudio-readback-" + Guid.NewGuid().ToString("N"));
             var sourcePath = Path.Combine(
                 temporaryDirectory,
-                "source" + LegacyLibraryReadbackPolicy.GetSourceExtension(candidate.Kind));
+                "source" + (string.IsNullOrWhiteSpace(extension) ? ".scl" : extension));
             Directory.CreateDirectory(temporaryDirectory);
             try
             {
                 // GenerateSource requires a destination that does not exist. The
                 // directory is fresh and the source path is intentionally not
                 // pre-created.
-                candidate.ExternalSourceGroup.GenerateSource(
-                    new[] { candidate.SourceObject },
+                externalSourceGroup.GenerateSource(
+                    new[] { sourceObject },
                     new FileInfo(sourcePath),
                     GenerateOptions.None);
                 var generatedFile = new FileInfo(sourcePath);
@@ -2526,7 +2586,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         "TIA Portal returned from GenerateSource without creating the destination file.");
                 }
 
-                sourceBytes = generatedFile.Length;
+                var sourceBytes = generatedFile.Length;
                 if (sourceBytes <= 0 ||
                     sourceBytes > LegacyLibraryReadbackPolicy.MaximumSourceBytesPerObject)
                 {
@@ -2549,13 +2609,16 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 }
                 catch (Exception exception)
                 {
-                    diagnostics.Add(ExceptionDiagnostic(
-                        OpennessDiagnosticCodes.TemporarySourceCleanupFailed,
-                        "A generated readback source was returned, but its temporary directory could not be removed: " +
-                        exception.Message,
-                        temporaryDirectory,
-                        exception,
-                        DiagnosticSeverity.Warning));
+                    if (diagnostics != null)
+                    {
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.TemporarySourceCleanupFailed,
+                            "A generated readback source was returned, but its temporary directory could not be removed: " +
+                            exception.Message,
+                            string.IsNullOrWhiteSpace(location) ? temporaryDirectory : location,
+                            exception,
+                            DiagnosticSeverity.Warning));
+                    }
                 }
             }
         }
@@ -3024,8 +3087,6 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 return plan;
             }
 
-            plan.Project = project;
-            plan.Software = plcSoftware;
             plan.EffectiveProjectPath = GetProjectPath(project);
             plan.EffectiveDeviceName = selectedDeviceName;
             plan.EffectiveSoftwareName = selectedSoftwareName;
@@ -3038,12 +3099,46 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 selectedDeviceName + "/" + selectedSoftwareName,
                 "Select this PLC software as the only export target.");
 
-            AddProjectState(plan);
-            InspectTags(plan, request);
-            InspectSources(plan, request);
+            LegacyProjectModifiedObservation projectModifiedObservation;
+            var hasUnsavedProjectChanges = HasUnsavedProjectChanges(
+                out projectModifiedObservation);
+            AddProjectState(plan, projectModifiedObservation);
+            if (projectModifiedObservation == LegacyProjectModifiedObservation.Unknown)
+            {
+                plan.AddDiagnostic(Error(
+                    OpennessDiagnosticCodes.PreflightFailed,
+                    "The current project dirty/saved state cannot be read safely. Export is blocked until the TIA session is healthy.",
+                    plan.EffectiveProjectPath));
+            }
+
+            var targetedLookupBudget = new LegacyTargetedComLookupBudget();
+            InspectTags(plan, request, targetedLookupBudget);
+            InspectSources(plan, request, targetedLookupBudget);
 
             var hasTransactionalMutations = plan.TagPlans.Any(tagPlan => tagPlan.Action != TagAction.None) ||
-                plan.Sources.Count > 0;
+                plan.Sources.Any(source => source.ShouldImport);
+            if (transactionCommitStateAmbiguous)
+            {
+                var isRecoverySaveOnly = request.SaveProjectAfterExport &&
+                    !request.CompileAfterImport &&
+                    !hasTransactionalMutations;
+                plan.AddCollision(new TiaExportCollision(
+                    TiaExportCollisionKind.ProjectState,
+                    plan.EffectiveProjectPath,
+                    false,
+                    isRecoverySaveOnly,
+                    isRecoverySaveOnly
+                        ? "A previous transaction finalization was ambiguous. This no-mutation request will only save the verified current state."
+                        : "A previous transaction finalization was ambiguous. Further mutation/compile is blocked until the current state is saved or the application is restarted."));
+                plan.AddDiagnostic(new OpennessDiagnostic(
+                    OpennessDiagnosticCodes.UnsavedChangesRequireManualSave,
+                    isRecoverySaveOnly ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
+                    isRecoverySaveOnly
+                        ? "The previous transaction outcome was ambiguous. Confirming will only save the current no-mutation project state."
+                        : "The previous transaction outcome was ambiguous. Use a no-mutation, compile-disabled Save workflow or verify/save the project manually before continuing.",
+                    plan.EffectiveProjectPath));
+            }
+
             if (hasTransactionalMutations)
             {
                 plan.InsertTransactionalOperation(
@@ -3080,7 +3175,19 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         ? "Save explicitly after a compile without errors; skip save when compile has errors."
                         : "Explicitly save the project after the committed import.");
 
-                if (project.IsModified)
+                var isExclusiveHeadlessSession = connectedPortalMode.HasValue &&
+                    connectedPortalMode.Value == TiaPortalMode.WithoutUserInterface &&
+                    portalStartedByAdapter;
+                if (!isExclusiveHeadlessSession)
+                {
+                    plan.AddDiagnostic(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.InteractiveSaveConcurrency,
+                        DiagnosticSeverity.Warning,
+                        "Automatic Save runs after transaction/compile. In an interactive or attached Portal session, manual or external changes made during that interval can be saved with this request. Stop editing the TIA project until export finishes, or save manually instead.",
+                        plan.EffectiveProjectPath));
+                }
+
+                if (hasUnsavedProjectChanges)
                 {
                     plan.AddCollision(new TiaExportCollision(
                         TiaExportCollisionKind.ProjectState,
@@ -3093,6 +3200,32 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         DiagnosticSeverity.Warning,
                         "SaveProjectAfterExport will also save changes that existed before this export.",
                         plan.EffectiveProjectPath));
+                }
+            }
+
+            if (request.VerifySavedExportAfterReopen)
+            {
+                if (connectionRequest == null ||
+                    connectionRequest.Mode != TiaConnectionMode.StartWithoutUserInterface ||
+                    !portalStartedByAdapter ||
+                    !projectOpenedByAdapter)
+                {
+                    plan.AddDiagnostic(Error(
+                        OpennessDiagnosticCodes.ReopenVerificationUnavailable,
+                        "Save/reopen/readback verification requires a headless Portal session and project opened by this adapter. " +
+                        "Connect with StartWithoutUserInterface. Interactive and attached sessions are never closed automatically by verification.",
+                        plan.EffectiveProjectPath));
+                }
+                else
+                {
+                    plan.AddOperation(
+                        TiaExportOperationKind.ReopenProject,
+                        plan.EffectiveProjectPath,
+                        "Close the clean adapter-owned project and Portal session, then open the exact saved project again without upgrade.");
+                    plan.AddOperation(
+                        TiaExportOperationKind.VerifyReadback,
+                        selectedDeviceName + "/" + selectedSoftwareName,
+                        "Read back every requested FB, FC, DB, UDT and PLC tag from the reopened project and verify kind, ownership and values.");
                 }
             }
 
@@ -3120,10 +3253,19 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     request.OwnershipMarker));
             }
 
+            if (request.VerifySavedExportAfterReopen && !request.SaveProjectAfterExport)
+            {
+                plan.AddDiagnostic(Error(
+                    OpennessDiagnosticCodes.ReopenVerificationUnavailable,
+                    "VerifySavedExportAfterReopen requires SaveProjectAfterExport. A project that was not saved cannot be verified from disk.",
+                    effectiveProjectPath));
+            }
+
             var lastKind = -1;
             var sourcePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var importOrders = new HashSet<int>();
             var declarationNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            long stagedSourceBytes = 0;
             foreach (var source in request.Sources
                 .OrderBy(item => item.ImportOrder)
                 .ThenBy(item => item.FilePath, StringComparer.OrdinalIgnoreCase))
@@ -3186,7 +3328,43 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 byte[] bytes;
                 try
                 {
+                    var sourceLength = new FileInfo(fullPath).Length;
+                    if (sourceLength <= 0 ||
+                        sourceLength > LegacyLibraryReadbackPolicy.MaximumSourceBytesPerObject)
+                    {
+                        plan.AddDiagnostic(Error(
+                            OpennessDiagnosticCodes.SourceFileInvalid,
+                            "The SCL source size must be within 1.." +
+                            LegacyLibraryReadbackPolicy.MaximumSourceBytesPerObject.ToString(CultureInfo.InvariantCulture) +
+                            " bytes so preflight and optional readback use the same safety bound.",
+                            fullPath));
+                        continue;
+                    }
+
+                    if (stagedSourceBytes >
+                        LegacyLibraryReadbackPolicy.MaximumStagedExportBytes - sourceLength)
+                    {
+                        plan.AddDiagnostic(Error(
+                            OpennessDiagnosticCodes.SourceFileInvalid,
+                            "The total staged SCL source size exceeds the configured " +
+                            LegacyLibraryReadbackPolicy.MaximumStagedExportBytes.ToString(CultureInfo.InvariantCulture) +
+                            " byte safety bound.",
+                            fullPath));
+                        continue;
+                    }
+
                     bytes = File.ReadAllBytes(fullPath);
+                    if (bytes.LongLength != sourceLength ||
+                        bytes.LongLength > LegacyLibraryReadbackPolicy.MaximumSourceBytesPerObject)
+                    {
+                        plan.AddDiagnostic(Error(
+                            OpennessDiagnosticCodes.SourceFileInvalid,
+                            "The SCL source changed while it was being staged or exceeds the configured safety bound.",
+                            fullPath));
+                        continue;
+                    }
+
+                    stagedSourceBytes += bytes.LongLength;
                 }
                 catch (Exception exception)
                 {
@@ -3308,7 +3486,27 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 }
             }
 
+            if (declarationNames.Count > LegacyLibraryReadbackPolicy.MaximumObjectCount)
+            {
+                plan.AddDiagnostic(Error(
+                    OpennessDiagnosticCodes.SourceFileInvalid,
+                    "The request contains " + declarationNames.Count.ToString(CultureInfo.InvariantCulture) +
+                    " PLC declarations; the configured export/readback limit is " +
+                    LegacyLibraryReadbackPolicy.MaximumObjectCount.ToString(CultureInfo.InvariantCulture) + ".",
+                    effectiveProjectPath));
+            }
+
             var requestedTagNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (request.Tags.Count > LegacyLibraryReadbackPolicy.MaximumTagCount)
+            {
+                plan.AddDiagnostic(Error(
+                    OpennessDiagnosticCodes.TagDefinitionInvalid,
+                    "The request contains " + request.Tags.Count.ToString(CultureInfo.InvariantCulture) +
+                    " PLC tags; the configured export/readback limit is " +
+                    LegacyLibraryReadbackPolicy.MaximumTagCount.ToString(CultureInfo.InvariantCulture) + ".",
+                    effectiveProjectPath));
+            }
+
             foreach (var tag in request.Tags)
             {
                 if (!SafeIdentifierPattern.IsMatch(tag.Name) || !IsSafeEngineeringName(tag.TableName))
@@ -3368,7 +3566,9 @@ namespace TiaSclStudio.Openness.Legacy.V17
             return true;
         }
 
-        private void AddProjectState(PreflightPlan plan)
+        private void AddProjectState(
+            PreflightPlan plan,
+            LegacyProjectModifiedObservation projectModifiedObservation)
         {
             try
             {
@@ -3402,21 +3602,39 @@ namespace TiaSclStudio.Openness.Legacy.V17
             plan.AddState("PROJECT_PATH", plan.EffectiveProjectPath);
             plan.AddState("PROJECT_VERSION", project.Version);
             plan.AddState("PROJECT_LAST_MODIFIED", project.LastModified.Ticks.ToString(CultureInfo.InvariantCulture));
-            plan.AddState("PROJECT_IS_MODIFIED", project.IsModified.ToString(CultureInfo.InvariantCulture));
+            plan.AddState("PROJECT_IS_MODIFIED", projectModifiedObservation.ToString());
+            plan.AddState(
+                "ADAPTER_COMMITTED_UNSAVED",
+                committedUnsavedChanges.ToString(CultureInfo.InvariantCulture));
+            plan.AddState(
+                "ADAPTER_COMMIT_AMBIGUOUS",
+                transactionCommitStateAmbiguous.ToString(CultureInfo.InvariantCulture));
+            plan.AddState("PROJECT_OPENED_BY_ADAPTER", projectOpenedByAdapter.ToString(CultureInfo.InvariantCulture));
+            plan.AddState("PORTAL_STARTED_BY_ADAPTER", portalStartedByAdapter.ToString(CultureInfo.InvariantCulture));
+            plan.AddState(
+                "CONNECTION_MODE",
+                connectionRequest == null ? string.Empty : connectionRequest.Mode.ToString());
             plan.AddState("PLC_DEVICE", plan.EffectiveDeviceName);
             plan.AddState("PLC_SOFTWARE", plan.EffectiveSoftwareName);
         }
 
-        private void InspectTags(PreflightPlan plan, TiaExportRequest request)
+        private void InspectTags(
+            PreflightPlan plan,
+            TiaExportRequest request,
+            LegacyTargetedComLookupBudget targetedLookupBudget)
         {
-            var allTables = EnumerateTagTables(plcSoftware.TagTableGroup).ToList();
-            var tablesByName = allTables
-                .GroupBy(table => table.Name, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
-            var tagsByName = allTables
-                .SelectMany(table => table.Tags.Select(tag => new TagLocation(table, tag)))
-                .GroupBy(location => location.Tag.Name, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+            if (request.Tags.Count == 0)
+            {
+                return;
+            }
+
+            Dictionary<string, List<PlcTagTable>> tablesByName;
+            Dictionary<string, List<TagLocation>> tagsByName;
+            CollectRequestedTagInspectionLocations(
+                request.Tags,
+                targetedLookupBudget,
+                out tablesByName,
+                out tagsByName);
             var plannedTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var definition in request.Tags)
@@ -3464,7 +3682,12 @@ namespace TiaSclStudio.Openness.Legacy.V17
                             "Create the missing PLC tag table in the root tag-table group inside the transaction.");
                     }
 
-                    plan.TagPlans.Add(new TagPlan(definition, TagAction.Create, targetTable, null));
+                    plan.TagPlans.Add(new TagPlan(
+                        definition,
+                        TagAction.Create,
+                        targetTable,
+                        null,
+                        !string.IsNullOrEmpty(definition.Comment)));
                     plan.AddOperation(
                         TiaExportOperationKind.CreateTag,
                         definition.TableName + "/" + definition.Name,
@@ -3476,12 +3699,11 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 }
 
                 var existing = existingLocations[0];
-                var existingState = existing.Table.Name + "|" + existing.Tag.DataTypeName + "|" +
-                    existing.Tag.LogicalAddress;
-                plan.AddState("TAG", definition.Name + "|" + existingState);
-
                 if (!string.Equals(existing.Table.Name, definition.TableName, StringComparison.OrdinalIgnoreCase))
                 {
+                    plan.AddState(
+                        "TAG",
+                        definition.Name + "|" + existing.Table.Name + "|WRONG_TABLE");
                     plan.AddCollision(new TiaExportCollision(
                         TiaExportCollisionKind.Tag,
                         definition.Name,
@@ -3495,11 +3717,69 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     continue;
                 }
 
-                var equal = string.Equals(existing.Tag.DataTypeName, definition.DataType, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(existing.Tag.LogicalAddress ?? string.Empty, definition.LogicalAddress, StringComparison.OrdinalIgnoreCase);
+                string existingComment;
+                try
+                {
+                    targetedLookupBudget.Consume(
+                        "reading a requested PLC-tag comment during preflight");
+                    existingComment = ReadPlcTagWriteLanguageComment(
+                        existing.Tag,
+                        project.LanguageSettings.EditingLanguage,
+                        project.LanguageSettings.ReferenceLanguage);
+                }
+                catch (NonRecoverableException)
+                {
+                    throw;
+                }
+                catch (EngineeringSecurityException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    plan.AddState("TAG", definition.Name + "|COMMENT_UNREADABLE");
+                    plan.AddCollision(new TiaExportCollision(
+                        TiaExportCollisionKind.Tag,
+                        definition.Name,
+                        false,
+                        false,
+                        "The existing tag comment cannot be read in the project editing/reference language."));
+                    plan.AddDiagnostic(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.TagConflict,
+                        "Tag '" + definition.Name +
+                        "' cannot be compared safely because its editing/reference-language comment is unreadable: " +
+                        exception.Message,
+                        definition.Name,
+                        exception));
+                    continue;
+                }
+
+                var existingState = existing.Table.Name + "|" + existing.Tag.DataTypeName + "|" +
+                    existing.Tag.LogicalAddress + "|COMMENT=" +
+                    ComputeHash(Encoding.UTF8.GetBytes(existingComment));
+                plan.AddState("TAG", definition.Name + "|" + existingState);
+
+                var dataTypeEqual = string.Equals(
+                    existing.Tag.DataTypeName,
+                    definition.DataType,
+                    StringComparison.OrdinalIgnoreCase);
+                var addressEqual = string.Equals(
+                    existing.Tag.LogicalAddress ?? string.Empty,
+                    definition.LogicalAddress,
+                    StringComparison.OrdinalIgnoreCase);
+                var commentEqual = string.Equals(
+                    existingComment,
+                    definition.Comment,
+                    StringComparison.Ordinal);
+                var equal = dataTypeEqual && addressEqual && commentEqual;
                 if (equal)
                 {
-                    plan.TagPlans.Add(new TagPlan(definition, TagAction.None, existing.Table, existing.Tag));
+                    plan.TagPlans.Add(new TagPlan(
+                        definition,
+                        TagAction.None,
+                        existing.Table,
+                        existing.Tag,
+                        false));
                     continue;
                 }
 
@@ -3511,7 +3791,10 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     canUpdate,
                     "Existing tag is " + existing.Tag.DataTypeName + " at '" +
                     (existing.Tag.LogicalAddress ?? string.Empty) + "'; requested value is " +
-                    definition.DataType + " at '" + definition.LogicalAddress + "'."));
+                    definition.DataType + " at '" + definition.LogicalAddress + "'. " +
+                    (commentEqual
+                        ? "The editing/reference-language comment is unchanged."
+                        : "The editing/reference-language comment differs.")));
 
                 if (!canUpdate)
                 {
@@ -3527,60 +3810,304 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     DiagnosticSeverity.Warning,
                     "Tag '" + definition.Name + "' will be updated after confirmation.",
                     definition.Name));
-                plan.TagPlans.Add(new TagPlan(definition, TagAction.Update, existing.Table, existing.Tag));
+                plan.TagPlans.Add(new TagPlan(
+                    definition,
+                    TagAction.Update,
+                    existing.Table,
+                    existing.Tag,
+                    !commentEqual));
                 plan.AddOperation(
                     TiaExportOperationKind.UpdateTag,
                     definition.TableName + "/" + definition.Name,
-                    "Update DataTypeName and LogicalAddress inside the transaction.");
+                    "Update DataTypeName, LogicalAddress and the editing/reference-language comment inside the transaction.");
             }
         }
 
-        private void InspectSources(PreflightPlan plan, TiaExportRequest request)
+        private void CollectRequestedTagInspectionLocations(
+            IEnumerable<TiaPlcTag> requestedTags,
+            LegacyTargetedComLookupBudget targetedLookupBudget,
+            out Dictionary<string, List<PlcTagTable>> tablesByName,
+            out Dictionary<string, List<TagLocation>> tagsByName)
         {
-            var blocks = EnumerateBlocks(plcSoftware.BlockGroup)
-                .GroupBy(block => block.Name, StringComparer.OrdinalIgnoreCase)
+            if (targetedLookupBudget == null)
+            {
+                throw new ArgumentNullException(nameof(targetedLookupBudget));
+            }
+
+            var requested = requestedTags.ToArray();
+            var requestedTableNames = new HashSet<string>(
+                requested.Select(item => item.TableName),
+                StringComparer.OrdinalIgnoreCase);
+            var requestedTagNames = new HashSet<string>(
+                requested.Select(item => item.Name),
+                StringComparer.OrdinalIgnoreCase);
+            tablesByName = new Dictionary<string, List<PlcTagTable>>(
+                StringComparer.OrdinalIgnoreCase);
+            tagsByName = new Dictionary<string, List<TagLocation>>(
+                StringComparer.OrdinalIgnoreCase);
+
+            var visitedGroups = 0;
+            var visitedTables = 0;
+            var matchedTags = 0;
+            AddRequestedTagInspectionLocations(
+                plcSoftware.TagTableGroup,
+                requestedTableNames,
+                requestedTagNames,
+                tablesByName,
+                tagsByName,
+                targetedLookupBudget,
+                ref visitedGroups,
+                ref visitedTables,
+                ref matchedTags,
+                0);
+        }
+
+        private static void AddRequestedTagInspectionLocations(
+            PlcTagTableGroup group,
+            ISet<string> requestedTableNames,
+            ISet<string> requestedTagNames,
+            IDictionary<string, List<PlcTagTable>> tablesByName,
+            IDictionary<string, List<TagLocation>> tagsByName,
+            LegacyTargetedComLookupBudget targetedLookupBudget,
+            ref int visitedGroups,
+            ref int visitedTables,
+            ref int matchedTags,
+            int depth)
+        {
+            if (group == null)
+            {
+                return;
+            }
+
+            visitedGroups++;
+            if (visitedGroups > LegacyLibraryReadbackPolicy.MaximumTagGroupCount ||
+                depth > LegacyLibraryReadbackPolicy.MaximumTagGroupDepth)
+            {
+                throw new InvalidOperationException(
+                    "The PLC tag-table group topology exceeds the configured preflight safety limit.");
+            }
+
+            foreach (var table in group.TagTables)
+            {
+                if (table == null)
+                {
+                    continue;
+                }
+
+                visitedTables++;
+                if (visitedTables > LegacyLibraryReadbackPolicy.MaximumTagTableCount)
+                {
+                    throw new InvalidOperationException(
+                        "The PLC tag-table count exceeds the configured preflight safety limit.");
+                }
+
+                if (requestedTableNames.Contains(table.Name))
+                {
+                    List<PlcTagTable> matchingTables;
+                    if (!tablesByName.TryGetValue(table.Name, out matchingTables))
+                    {
+                        matchingTables = new List<PlcTagTable>();
+                        tablesByName.Add(table.Name, matchingTables);
+                    }
+
+                    matchingTables.Add(table);
+                }
+
+                foreach (var requestedTagName in requestedTagNames)
+                {
+                    targetedLookupBudget.Consume("looking up a requested PLC tag during preflight");
+                    var tag = table.Tags.Find(requestedTagName);
+                    if (tag == null)
+                    {
+                        continue;
+                    }
+
+                    matchedTags++;
+                    if (matchedTags > LegacyLibraryReadbackPolicy.MaximumTagCount)
+                    {
+                        throw new InvalidOperationException(
+                            "The relevant PLC-tag count exceeds the configured preflight safety limit.");
+                    }
+
+                    List<TagLocation> matchingTags;
+                    if (!tagsByName.TryGetValue(requestedTagName, out matchingTags))
+                    {
+                        matchingTags = new List<TagLocation>();
+                        tagsByName.Add(requestedTagName, matchingTags);
+                    }
+
+                    matchingTags.Add(new TagLocation(table, tag));
+                }
+            }
+
+            foreach (var child in group.Groups)
+            {
+                if (child == null)
+                {
+                    continue;
+                }
+
+                AddRequestedTagInspectionLocations(
+                    child,
+                    requestedTableNames,
+                    requestedTagNames,
+                    tablesByName,
+                    tagsByName,
+                    targetedLookupBudget,
+                    ref visitedGroups,
+                    ref visitedTables,
+                    ref matchedTags,
+                    depth + 1);
+            }
+        }
+
+        private void InspectSources(
+            PreflightPlan plan,
+            TiaExportRequest request,
+            LegacyTargetedComLookupBudget targetedLookupBudget)
+        {
+            if (plan.Sources.Count == 0)
+            {
+                return;
+            }
+
+            var requestedNames = new HashSet<string>(
+                plan.Sources.SelectMany(source => source.RequestedDeclarations)
+                    .Select(declaration => declaration.Name),
+                StringComparer.OrdinalIgnoreCase);
+            var locations = CollectRequestedExportObjectLocations(
+                requestedNames,
+                targetedLookupBudget);
+            var blocks = locations.Where(location => location.Block != null)
+                .GroupBy(location => location.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
-            var types = EnumerateTypes(plcSoftware.TypeGroup)
-                .GroupBy(type => type.Name, StringComparer.OrdinalIgnoreCase)
+            var types = locations.Where(location => location.Type != null)
+                .GroupBy(location => location.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
 
             foreach (var source in plan.Sources)
             {
-                foreach (var declaration in source.Declarations)
+                var equivalentTypes = new List<SclDeclaration>();
+                foreach (var declaration in source.RequestedDeclarations)
                 {
                     if (declaration.IsDataType)
                     {
-                        List<PlcType> existingTypes;
-                        if (!types.TryGetValue(declaration.Name, out existingTypes))
+                        List<ExportObjectLocation> sameNamedBlocks;
+                        if (blocks.TryGetValue(declaration.Name, out sameNamedBlocks) &&
+                            sameNamedBlocks.Count > 0)
                         {
-                            existingTypes = new List<PlcType>();
+                            AddUnsafeDataTypeCollision(
+                                plan,
+                                declaration.Name,
+                                "A same-named PLC block already exists; the requested UDT name is ambiguous across PLC object kinds.");
+                            plan.AddState("TYPE", declaration.Name + "|WRONG_KIND_BLOCK");
+                            continue;
                         }
 
-                        if (existingTypes.Count > 0)
+                        List<ExportObjectLocation> existingTypes;
+                        if (!types.TryGetValue(declaration.Name, out existingTypes))
                         {
+                            existingTypes = new List<ExportObjectLocation>();
+                        }
+
+                        if (existingTypes.Count == 0)
+                        {
+                            plan.AddState("TYPE", declaration.Name + "|MISSING");
+                            continue;
+                        }
+
+                        if (existingTypes.Count != 1 || existingTypes.Any(item => item.IsSoftwareUnit))
+                        {
+                            AddUnsafeDataTypeCollision(
+                                plan,
+                                declaration.Name,
+                                existingTypes.Count != 1
+                                    ? "More than one PLC data type with this name exists."
+                                    : "A same-named PLC data type exists inside a Software Unit and cannot be reused by a root-source export.");
+                            plan.AddState("TYPE", declaration.Name + "|AMBIGUOUS_OR_UNIT");
+                            continue;
+                        }
+
+                        var existingTypeLocation = existingTypes[0];
+                        var existingStruct = existingTypeLocation.Type as PlcStruct;
+                        var protection = existingTypeLocation.Type.IsKnowHowProtected;
+                        var statePrefix = declaration.Name + "|EXISTS|" + existingTypeLocation.GroupPath + "|" +
+                            existingTypeLocation.Type.GetType().FullName + "|" + protection.ToString(CultureInfo.InvariantCulture) + "|" +
+                            existingTypeLocation.Type.ModifiedDate.Ticks.ToString(CultureInfo.InvariantCulture) + "|" +
+                            existingTypeLocation.Type.InterfaceModifiedDate.Ticks.ToString(CultureInfo.InvariantCulture) + "|" +
+                            existingTypeLocation.Type.IsConsistent.ToString(CultureInfo.InvariantCulture);
+                        if (existingStruct == null || protection)
+                        {
+                            plan.AddState("TYPE", statePrefix + "|UNREADABLE");
+                            AddUnsafeDataTypeCollision(
+                                plan,
+                                declaration.Name,
+                                protection
+                                    ? "The existing PLC data type is know-how protected and cannot be compared safely."
+                                    : "The existing PLC type is not a STRUCT UDT supported by this source.");
+                            continue;
+                        }
+
+                        try
+                        {
+                            var expectedText = SclSourceInspector.GetSingleDeclarationSource(
+                                source.ImportText,
+                                declaration.Kind,
+                                declaration.Name);
+                            var actualText = GenerateEngineeringSource(
+                                existingStruct,
+                                existingTypeLocation.ExternalSourceGroup,
+                                ".udt",
+                                declaration.Name,
+                                plan.Diagnostics);
+                            var expectedCanonical = SclSourceInspector.Canonicalize(expectedText);
+                            var actualCanonical = SclSourceInspector.Canonicalize(actualText);
+                            plan.AddState(
+                                "TYPE",
+                                statePrefix + "|EXPECTED=" + ComputeHash(Encoding.UTF8.GetBytes(expectedCanonical)) +
+                                "|ACTUAL=" + ComputeHash(Encoding.UTF8.GetBytes(actualCanonical)));
+                            if (!string.Equals(expectedCanonical, actualCanonical, StringComparison.Ordinal))
+                            {
+                                AddUnsafeDataTypeCollision(
+                                    plan,
+                                    declaration.Name,
+                                    "The existing UDT differs from the requested functional SCL definition. V17 API exposes no ownership marker for PLC data types, so replacement is forbidden.");
+                                continue;
+                            }
+
+                            equivalentTypes.Add(declaration);
+                            plan.AddOperation(
+                                TiaExportOperationKind.ReuseExistingDataType,
+                                declaration.Name,
+                                "Reuse the unique functionally equivalent existing UDT. It is not regenerated or overwritten.");
+                            plan.AddDiagnostic(new OpennessDiagnostic(
+                                OpennessDiagnosticCodes.DataTypeEquivalentNoOp,
+                                DiagnosticSeverity.Information,
+                                "Existing UDT '" + declaration.Name + "' is functionally equivalent and will be left unchanged. Formatting and comments are not reapplied.",
+                                declaration.Name));
+                        }
+                        catch (NonRecoverableException)
+                        {
+                            throw;
+                        }
+                        catch (EngineeringSecurityException)
+                        {
+                            throw;
+                        }
+                        catch (Exception exception)
+                        {
+                            plan.AddState("TYPE", statePrefix + "|COMPARE_FAILED");
+                            plan.AddDiagnostic(ExceptionDiagnostic(
+                                OpennessDiagnosticCodes.DataTypeConflict,
+                                "The existing UDT could not be compared safely; replacement is forbidden: " + exception.Message,
+                                declaration.Name,
+                                exception));
                             plan.AddCollision(new TiaExportCollision(
                                 TiaExportCollisionKind.DataType,
                                 declaration.Name,
                                 false,
                                 false,
-                                "Existing PLC data types cannot be proven to be owned by this adapter."));
-                            plan.AddDiagnostic(Error(
-                                OpennessDiagnosticCodes.DataTypeConflict,
-                                "PLC data type '" + declaration.Name + "' already exists and cannot be overwritten safely.",
-                                declaration.Name));
-                            foreach (var existingType in existingTypes)
-                            {
-                                plan.AddState(
-                                    "TYPE",
-                                    declaration.Name + "|EXISTS|" +
-                                    existingType.ModifiedDate.Ticks.ToString(CultureInfo.InvariantCulture) + "|" +
-                                    existingType.InterfaceModifiedDate.Ticks.ToString(CultureInfo.InvariantCulture) + "|" +
-                                    existingType.IsConsistent.ToString(CultureInfo.InvariantCulture));
-                            }
-                        }
-                        else
-                        {
-                            plan.AddState("TYPE", declaration.Name + "|MISSING");
+                                "The existing UDT could not be read back for an exact functional comparison."));
                         }
 
                         continue;
@@ -3595,14 +4122,39 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         continue;
                     }
 
-                    List<PlcBlock> existingBlocks;
-                    if (!blocks.TryGetValue(declaration.Name, out existingBlocks))
+                    List<ExportObjectLocation> sameNamedTypes;
+                    if (types.TryGetValue(declaration.Name, out sameNamedTypes) &&
+                        sameNamedTypes.Count > 0)
                     {
-                        existingBlocks = new List<PlcBlock>();
+                        plan.AddCollision(new TiaExportCollision(
+                            TiaExportCollisionKind.Block,
+                            declaration.Name,
+                            false,
+                            false,
+                            "A same-named PLC data type exists; the requested block name is ambiguous across PLC object kinds."));
+                        plan.AddDiagnostic(Error(
+                            OpennessDiagnosticCodes.BlockConflict,
+                            "PLC object '" + declaration.Name +
+                            "' already exists as a data type; the requested block cannot be imported safely.",
+                            declaration.Name));
+                        plan.AddState("BLOCK", declaration.Name + "|WRONG_KIND_DATA_TYPE");
+                        continue;
                     }
 
-                    if (existingBlocks.Count > 1)
+                    List<ExportObjectLocation> existingBlocks;
+                    if (!blocks.TryGetValue(declaration.Name, out existingBlocks))
                     {
+                        existingBlocks = new List<ExportObjectLocation>();
+                    }
+
+                    if (existingBlocks.Count != 1)
+                    {
+                        if (existingBlocks.Count == 0)
+                        {
+                            plan.AddState("BLOCK", declaration.Name + "|MISSING");
+                            continue;
+                        }
+
                         plan.AddCollision(new TiaExportCollision(
                             TiaExportCollisionKind.Block,
                             declaration.Name,
@@ -3617,13 +4169,8 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         continue;
                     }
 
-                    if (existingBlocks.Count == 0)
-                    {
-                        plan.AddState("BLOCK", declaration.Name + "|MISSING");
-                        continue;
-                    }
-
-                    var existingBlock = existingBlocks[0];
+                    var existing = existingBlocks[0];
+                    var existingBlock = existing.Block;
                     string existingMarker;
                     try
                     {
@@ -3647,34 +4194,92 @@ namespace TiaSclStudio.Openness.Legacy.V17
                             exception));
                     }
 
-                    var isOwned = string.Equals(
-                        existingMarker,
-                        request.OwnershipMarker,
-                        StringComparison.Ordinal);
-                    var canOverwrite = isOwned && request.AllowOwnedBlockOverwrite;
+                    var isOwned = string.Equals(existingMarker, request.OwnershipMarker, StringComparison.Ordinal);
+                    var kindMatches = existing.DeclarationKind == declaration.Kind;
+                    var protectedBlock = existingBlock.IsKnowHowProtected;
+                    var interfaceMatches = false;
+                    var expectedInterfaceHash = string.Empty;
+                    var actualInterfaceHash = string.Empty;
+                    if (isOwned && request.AllowOwnedBlockOverwrite && kindMatches &&
+                        !protectedBlock && !existing.IsSoftwareUnit)
+                    {
+                        try
+                        {
+                            var expectedInterface = SclSourceInspector.GetCanonicalHeaderAndInterface(
+                                source.ImportText,
+                                declaration.Kind,
+                                declaration.Name);
+                            var actualSource = GenerateEngineeringSource(
+                                existingBlock,
+                                existing.ExternalSourceGroup,
+                                ".scl",
+                                declaration.Name,
+                                plan.Diagnostics);
+                            var actualInterface = SclSourceInspector.GetCanonicalHeaderAndInterface(
+                                actualSource,
+                                declaration.Kind,
+                                declaration.Name);
+                            expectedInterfaceHash = ComputeHash(Encoding.UTF8.GetBytes(expectedInterface));
+                            actualInterfaceHash = ComputeHash(Encoding.UTF8.GetBytes(actualInterface));
+                            interfaceMatches = string.Equals(
+                                expectedInterface,
+                                actualInterface,
+                                StringComparison.Ordinal);
+                        }
+                        catch (NonRecoverableException)
+                        {
+                            throw;
+                        }
+                        catch (EngineeringSecurityException)
+                        {
+                            throw;
+                        }
+                        catch (Exception exception)
+                        {
+                            plan.AddDiagnostic(ExceptionDiagnostic(
+                                OpennessDiagnosticCodes.BlockConflict,
+                                "Cannot read and compare the existing block interface; overwrite is forbidden: " + exception.Message,
+                                declaration.Name,
+                                exception));
+                        }
+                    }
+
+                    var canOverwrite = isOwned && request.AllowOwnedBlockOverwrite &&
+                        kindMatches && !protectedBlock && !existing.IsSoftwareUnit && interfaceMatches;
                     plan.AddState(
                         "BLOCK",
-                        declaration.Name + "|EXISTS|" + existingMarker + "|" +
+                        declaration.Name + "|EXISTS|" + existing.GroupPath + "|" + existing.DeclarationKind + "|" +
+                        existingMarker + "|PROTECTED=" + protectedBlock.ToString(CultureInfo.InvariantCulture) + "|" +
                         existingBlock.ModifiedDate.Ticks.ToString(CultureInfo.InvariantCulture) + "|" +
                         existingBlock.CodeModifiedDate.Ticks.ToString(CultureInfo.InvariantCulture) + "|" +
                         existingBlock.InterfaceModifiedDate.Ticks.ToString(CultureInfo.InvariantCulture) + "|" +
-                        existingBlock.IsConsistent.ToString(CultureInfo.InvariantCulture));
+                        existingBlock.IsConsistent.ToString(CultureInfo.InvariantCulture) + "|EXPECTED_INTERFACE=" +
+                        expectedInterfaceHash + "|ACTUAL_INTERFACE=" + actualInterfaceHash);
                     plan.AddCollision(new TiaExportCollision(
                         TiaExportCollisionKind.Block,
                         declaration.Name,
                         isOwned,
                         canOverwrite,
-                        isOwned
-                            ? "The block carries the matching HeaderFamily ownership marker."
-                            : "The block has no matching HeaderFamily ownership marker."));
+                        BuildBlockCollisionDescription(
+                            isOwned,
+                            request.AllowOwnedBlockOverwrite,
+                            kindMatches,
+                            protectedBlock,
+                            existing.IsSoftwareUnit,
+                            interfaceMatches)));
 
                     if (!canOverwrite)
                     {
                         plan.AddDiagnostic(Error(
                             OpennessDiagnosticCodes.BlockConflict,
-                            isOwned
-                                ? "Block '" + declaration.Name + "' is owned, but AllowOwnedBlockOverwrite is false."
-                                : "Block '" + declaration.Name + "' is not owned by marker '" + request.OwnershipMarker + "'.",
+                            BuildBlockConflictMessage(
+                                declaration,
+                                request,
+                                existing,
+                                isOwned,
+                                kindMatches,
+                                protectedBlock,
+                                interfaceMatches),
                             declaration.Name));
                     }
                     else
@@ -3682,9 +4287,15 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         plan.AddDiagnostic(new OpennessDiagnostic(
                             OpennessDiagnosticCodes.BlockConflict,
                             DiagnosticSeverity.Warning,
-                            "Owned block '" + declaration.Name + "' will be overwritten after confirmation.",
+                            "Owned block '" + declaration.Name + "' has the same interface and will be overwritten after confirmation.",
                             declaration.Name));
                     }
+                }
+
+                source.ExcludeDeclarations(equivalentTypes);
+                if (!source.ShouldImport)
+                {
+                    continue;
                 }
 
                 plan.AddOperation(
@@ -3704,12 +4315,448 @@ namespace TiaSclStudio.Openness.Legacy.V17
             }
         }
 
+        private static void AddUnsafeDataTypeCollision(
+            PreflightPlan plan,
+            string name,
+            string reason)
+        {
+            plan.AddCollision(new TiaExportCollision(
+                TiaExportCollisionKind.DataType,
+                name,
+                false,
+                false,
+                reason));
+            plan.AddDiagnostic(Error(
+                OpennessDiagnosticCodes.DataTypeConflict,
+                "PLC data type '" + name + "' already exists and cannot be overwritten safely. " + reason,
+                name));
+        }
+
+        private static string BuildBlockCollisionDescription(
+            bool isOwned,
+            bool overwriteEnabled,
+            bool kindMatches,
+            bool isKnowHowProtected,
+            bool isSoftwareUnit,
+            bool interfaceMatches)
+        {
+            if (!isOwned)
+            {
+                return "The block has no matching HeaderFamily ownership marker.";
+            }
+
+            if (!overwriteEnabled)
+            {
+                return "The block is owned, but explicit owned-block overwrite is disabled.";
+            }
+
+            if (isSoftwareUnit)
+            {
+                return "The owned block is inside a Software Unit; a root-source export cannot replace it safely.";
+            }
+
+            if (!kindMatches)
+            {
+                return "The owned object kind differs from the requested FB/FC/DB declaration.";
+            }
+
+            if (isKnowHowProtected)
+            {
+                return "The owned block is know-how protected and cannot be inspected before replacement.";
+            }
+
+            return interfaceMatches
+                ? "The block carries the matching marker, kind and interface; body replacement is allowed after confirmation."
+                : "The owned block interface differs from the requested declaration; replacement could invalidate callers or instance DBs.";
+        }
+
+        private static string BuildBlockConflictMessage(
+            SclDeclaration declaration,
+            TiaExportRequest request,
+            ExportObjectLocation existing,
+            bool isOwned,
+            bool kindMatches,
+            bool isKnowHowProtected,
+            bool interfaceMatches)
+        {
+            if (!isOwned)
+            {
+                return "Block '" + declaration.Name + "' is not owned by marker '" +
+                    request.OwnershipMarker + "'.";
+            }
+
+            if (!request.AllowOwnedBlockOverwrite)
+            {
+                return "Block '" + declaration.Name +
+                    "' is owned, but AllowOwnedBlockOverwrite is false.";
+            }
+
+            if (existing.IsSoftwareUnit)
+            {
+                return "Block '" + declaration.Name +
+                    "' is inside Software Unit scope '" + existing.GroupPath +
+                    "'; root-source overwrite is forbidden.";
+            }
+
+            if (!kindMatches)
+            {
+                return "Block '" + declaration.Name + "' has kind " + existing.DeclarationKind +
+                    ", but the source requests " + declaration.Kind + ".";
+            }
+
+            if (isKnowHowProtected)
+            {
+                return "Block '" + declaration.Name +
+                    "' is know-how protected; overwrite is forbidden even with a matching ownership marker.";
+            }
+
+            return interfaceMatches
+                ? "Block '" + declaration.Name + "' cannot be overwritten safely."
+                : "Block '" + declaration.Name +
+                  "' has a different interface. Only body-only replacement of owned blocks is allowed.";
+        }
+
+        private List<ExportObjectLocation> CollectExportObjectLocations()
+        {
+            var result = new List<ExportObjectLocation>();
+            AddExportScopeLocations(
+                plcSoftware.BlockGroup,
+                plcSoftware.TypeGroup,
+                plcSoftware.ExternalSourceGroup,
+                string.Empty,
+                false,
+                result);
+
+            var unitProvider = plcSoftware.GetService<PlcUnitProvider>();
+            if (unitProvider == null || unitProvider.UnitGroup == null)
+            {
+                return result;
+            }
+
+            foreach (var unit in unitProvider.UnitGroup.Units)
+            {
+                if (unit == null)
+                {
+                    continue;
+                }
+
+                AddExportScopeLocations(
+                    unit.BlockGroup,
+                    unit.TypeGroup,
+                    unit.ExternalSourceGroup,
+                    CombineLibraryGroupPath("Unit", unit.Name),
+                    true,
+                    result);
+            }
+
+            return result;
+        }
+
+        private List<ExportObjectLocation> CollectRequestedExportObjectLocations(
+            ISet<string> requestedNames,
+            LegacyTargetedComLookupBudget targetedLookupBudget)
+        {
+            if (requestedNames == null)
+            {
+                throw new ArgumentNullException(nameof(requestedNames));
+            }
+
+            if (targetedLookupBudget == null)
+            {
+                throw new ArgumentNullException(nameof(targetedLookupBudget));
+            }
+
+            if (requestedNames.Count > LegacyLibraryReadbackPolicy.MaximumObjectCount)
+            {
+                throw new InvalidOperationException(
+                    "The requested readback object count exceeds the configured safety limit.");
+            }
+
+            var result = new List<ExportObjectLocation>();
+            if (requestedNames.Count == 0)
+            {
+                return result;
+            }
+
+            var visitedGroups = 0;
+            AddRequestedBlockLocations(
+                plcSoftware.BlockGroup,
+                plcSoftware.ExternalSourceGroup,
+                string.Empty,
+                false,
+                requestedNames,
+                result,
+                targetedLookupBudget,
+                ref visitedGroups,
+                0);
+            AddRequestedTypeLocations(
+                plcSoftware.TypeGroup,
+                plcSoftware.ExternalSourceGroup,
+                string.Empty,
+                false,
+                requestedNames,
+                result,
+                targetedLookupBudget,
+                ref visitedGroups,
+                0);
+
+            var unitProvider = plcSoftware.GetService<PlcUnitProvider>();
+            if (unitProvider == null || unitProvider.UnitGroup == null)
+            {
+                return result;
+            }
+
+            var visitedUnits = 0;
+            foreach (var unit in unitProvider.UnitGroup.Units)
+            {
+                if (unit == null)
+                {
+                    continue;
+                }
+
+                visitedUnits++;
+                if (visitedUnits > LegacyLibraryReadbackPolicy.MaximumSoftwareUnitCount)
+                {
+                    throw new InvalidOperationException(
+                        "The Software Unit count exceeds the configured readback safety limit.");
+                }
+
+                var unitPath = CombineLibraryGroupPath("Unit", unit.Name);
+                AddRequestedBlockLocations(
+                    unit.BlockGroup,
+                    unit.ExternalSourceGroup,
+                    unitPath,
+                    true,
+                    requestedNames,
+                    result,
+                    targetedLookupBudget,
+                    ref visitedGroups,
+                    0);
+                AddRequestedTypeLocations(
+                    unit.TypeGroup,
+                    unit.ExternalSourceGroup,
+                    unitPath,
+                    true,
+                    requestedNames,
+                    result,
+                    targetedLookupBudget,
+                    ref visitedGroups,
+                    0);
+            }
+
+            return result;
+        }
+
+        private static void AddRequestedBlockLocations(
+            PlcBlockGroup group,
+            PlcExternalSourceSystemGroup externalSourceGroup,
+            string groupPath,
+            bool isSoftwareUnit,
+            ISet<string> requestedNames,
+            ICollection<ExportObjectLocation> result,
+            LegacyTargetedComLookupBudget targetedLookupBudget,
+            ref int visitedGroups,
+            int depth)
+        {
+            if (group == null)
+            {
+                return;
+            }
+
+            GuardRequestedReadbackGroup(ref visitedGroups, depth);
+            foreach (var name in requestedNames)
+            {
+                targetedLookupBudget.Consume("looking up a requested PLC block");
+                var block = group.Blocks.Find(name);
+                if (block != null)
+                {
+                    AddRequestedExportLocation(
+                        new ExportObjectLocation(
+                            block,
+                            null,
+                            externalSourceGroup,
+                            groupPath,
+                            isSoftwareUnit),
+                        result);
+                }
+            }
+
+            foreach (var child in group.Groups)
+            {
+                if (child == null)
+                {
+                    continue;
+                }
+
+                AddRequestedBlockLocations(
+                    child,
+                    externalSourceGroup,
+                    CombineLibraryGroupPath(groupPath, child.Name),
+                    isSoftwareUnit,
+                    requestedNames,
+                    result,
+                    targetedLookupBudget,
+                    ref visitedGroups,
+                    depth + 1);
+            }
+        }
+
+        private static void AddRequestedTypeLocations(
+            PlcTypeGroup group,
+            PlcExternalSourceSystemGroup externalSourceGroup,
+            string groupPath,
+            bool isSoftwareUnit,
+            ISet<string> requestedNames,
+            ICollection<ExportObjectLocation> result,
+            LegacyTargetedComLookupBudget targetedLookupBudget,
+            ref int visitedGroups,
+            int depth)
+        {
+            if (group == null)
+            {
+                return;
+            }
+
+            GuardRequestedReadbackGroup(ref visitedGroups, depth);
+            foreach (var name in requestedNames)
+            {
+                targetedLookupBudget.Consume("looking up a requested PLC data type");
+                var type = group.Types.Find(name);
+                if (type != null)
+                {
+                    AddRequestedExportLocation(
+                        new ExportObjectLocation(
+                            null,
+                            type,
+                            externalSourceGroup,
+                            groupPath,
+                            isSoftwareUnit),
+                        result);
+                }
+            }
+
+            foreach (var child in group.Groups)
+            {
+                if (child == null)
+                {
+                    continue;
+                }
+
+                AddRequestedTypeLocations(
+                    child,
+                    externalSourceGroup,
+                    CombineLibraryGroupPath(groupPath, child.Name),
+                    isSoftwareUnit,
+                    requestedNames,
+                    result,
+                    targetedLookupBudget,
+                    ref visitedGroups,
+                    depth + 1);
+            }
+        }
+
+        private static void GuardRequestedReadbackGroup(ref int visitedGroups, int depth)
+        {
+            visitedGroups++;
+            if (visitedGroups > LegacyLibraryReadbackPolicy.MaximumTagGroupCount ||
+                depth > LegacyLibraryReadbackPolicy.MaximumTagGroupDepth)
+            {
+                throw new InvalidOperationException(
+                    "The PLC block/type group topology exceeds the configured readback safety limit.");
+            }
+        }
+
+        private static void AddRequestedExportLocation(
+            ExportObjectLocation location,
+            ICollection<ExportObjectLocation> result)
+        {
+            if (result.Count >= LegacyLibraryReadbackPolicy.MaximumObjectCount)
+            {
+                throw new InvalidOperationException(
+                    "The relevant export object count exceeds the configured readback safety limit.");
+            }
+
+            result.Add(location);
+        }
+
+        private static void AddExportScopeLocations(
+            PlcBlockGroup blockGroup,
+            PlcTypeGroup typeGroup,
+            PlcExternalSourceSystemGroup externalSourceGroup,
+            string scopePath,
+            bool isSoftwareUnit,
+            ICollection<ExportObjectLocation> result)
+        {
+            if (blockGroup != null)
+            {
+                var blocks = LegacyLibraryReadbackPolicy.WalkGroupTree(
+                    blockGroup,
+                    group => group.Blocks.Cast<PlcBlock>(),
+                    group => group.Groups.Cast<PlcBlockGroup>(),
+                    group => group.Name);
+                foreach (var entry in blocks)
+                {
+                    result.Add(new ExportObjectLocation(
+                        entry.Item,
+                        null,
+                        externalSourceGroup,
+                        CombineLibraryGroupPath(scopePath, entry.GroupPath),
+                        isSoftwareUnit));
+                }
+            }
+
+            if (typeGroup == null)
+            {
+                return;
+            }
+
+            var types = LegacyLibraryReadbackPolicy.WalkGroupTree(
+                typeGroup,
+                group => group.Types.Cast<PlcType>(),
+                group => group.Groups.Cast<PlcTypeGroup>(),
+                group => group.Name);
+            foreach (var entry in types)
+            {
+                result.Add(new ExportObjectLocation(
+                    null,
+                    entry.Item,
+                    externalSourceGroup,
+                    CombineLibraryGroupPath(scopePath, entry.GroupPath),
+                    isSoftwareUnit));
+            }
+        }
+
+        private static SclDeclarationKind GetBlockDeclarationKind(PlcBlock block)
+        {
+            if (block is FB)
+            {
+                return SclDeclarationKind.FunctionBlock;
+            }
+
+            if (block is FC)
+            {
+                return SclDeclarationKind.Function;
+            }
+
+            return block is DataBlock
+                ? SclDeclarationKind.DataBlock
+                : SclDeclarationKind.OrganizationBlock;
+        }
+
         private TiaExportResult ExecuteExport(TiaExportRequest request, PreviewTicket ticket)
         {
             var diagnostics = new List<OpennessDiagnostic>();
             var importedSourceCount = 0;
             var compilationAttempted = false;
+            var readbackAttempted = false;
+            var readbackSucceeded = false;
             var transactionCommitted = false;
+            var transactionCommitStarted = false;
+            var transactionCommitArmed = false;
+            var transactionFinalizationAmbiguous = false;
+            var transactionRollbackFailed = false;
+            var transactionDisposeFailed = false;
+            var exclusiveAccessReleaseFailed = false;
             var mutationAttempted = false;
             PreflightPlan plan = null;
 
@@ -3717,47 +4764,168 @@ namespace TiaSclStudio.Openness.Legacy.V17
             {
                 try
                 {
-                using (var exclusive = tiaPortal.ExclusiveAccess("TIA SCL Studio guarded export"))
-                {
-                    plan = BuildPreflight(request);
-                    if (!plan.CanExecute ||
-                        !string.Equals(ticket.RequestFingerprint, plan.RequestFingerprint, StringComparison.Ordinal) ||
-                        !string.Equals(ticket.PlanFingerprint, plan.PlanFingerprint, StringComparison.Ordinal))
+                    ExclusiveAccess exclusive = null;
+                    Exception exclusiveOperationException = null;
+                    Exception exclusiveDisposeException = null;
+                    var exclusiveDisposeReturned = false;
+                    TiaExportResult earlyResult = null;
+                    try
                     {
-                        var staleDiagnostics = new List<OpennessDiagnostic>(plan.Diagnostics)
+                        exclusive = tiaPortal.ExclusiveAccess("TIA SCL Studio guarded export");
+                        if (exclusive == null)
                         {
-                            Error(
-                                OpennessDiagnosticCodes.ConfirmationStale,
-                                "The request, staged source bytes, project, PLC, or collision state changed after preview. Run preview again.")
-                        };
-                        return new TiaExportResult(
-                            TiaExportOutcome.Rejected,
-                            0,
-                            false,
-                            staleDiagnostics);
-                    }
-
-                    diagnostics.AddRange(plan.Diagnostics);
-                    var hasMutations = plan.TagPlans.Any(item => item.Action != TagAction.None) ||
-                        plan.Sources.Count > 0;
-                    if (hasMutations)
-                    {
-                        mutationAttempted = true;
-                        using (var transaction = exclusive.Transaction(project, "TIA SCL Studio import"))
-                        {
-                            ThrowIfCancellationRequested(exclusive);
-                            ApplyTagPlans(plan, diagnostics, exclusive);
-                            GenerateSources(plan, request.OwnershipMarker, diagnostics, exclusive);
-                            ThrowIfCancellationRequested(exclusive);
-                            transaction.CommitOnDispose();
+                            throw new InvalidOperationException(
+                                "TIA Portal returned no ExclusiveAccess scope.");
                         }
 
-                        transactionCommitted = true;
-                        importedSourceCount = plan.Sources.Count;
-                        committedUnsavedChanges = true;
+                        plan = BuildPreflight(request);
+                        diagnostics.AddRange(plan.Diagnostics);
+                        if (!plan.CanExecute ||
+                            !string.Equals(ticket.RequestFingerprint, plan.RequestFingerprint, StringComparison.Ordinal) ||
+                            !string.Equals(ticket.PlanFingerprint, plan.PlanFingerprint, StringComparison.Ordinal))
+                        {
+                            diagnostics.Add(Error(
+                                OpennessDiagnosticCodes.ConfirmationStale,
+                                "The request, staged source bytes, project, PLC, or collision state changed after preview. Run preview again."));
+                            earlyResult = new TiaExportResult(
+                                TiaExportOutcome.Rejected,
+                                0,
+                                false,
+                                diagnostics);
+                        }
+                        else
+                        {
+                            var hasMutations = plan.TagPlans.Any(item => item.Action != TagAction.None) ||
+                                plan.Sources.Any(source => source.ShouldImport);
+                            if (hasMutations)
+                            {
+                                mutationAttempted = true;
+                                var transaction = exclusive.Transaction(project, "TIA SCL Studio import");
+                                Exception transactionOperationException = null;
+                                Exception transactionDisposeException = null;
+                                var transactionDisposeReturned = false;
+                                try
+                                {
+                                    ThrowIfCancellationRequested(exclusive);
+                                    ApplyTagPlans(plan, exclusive);
+                                    GenerateSources(plan, request.OwnershipMarker, diagnostics, exclusive);
+                                    ThrowIfCancellationRequested(exclusive);
+                                    transactionCommitStarted = true;
+                                    transaction.CommitOnDispose();
+                                    transactionCommitArmed = true;
+                                }
+                                catch (Exception exception)
+                                {
+                                    transactionOperationException = exception;
+                                }
+
+                                try
+                                {
+                                    transaction.Dispose();
+                                    transactionDisposeReturned = true;
+                                }
+                                catch (Exception exception)
+                                {
+                                    transactionDisposeException = exception;
+                                    transactionDisposeFailed = true;
+                                }
+
+                                var transactionOutcome = LegacyTransactionFinalizationPolicy.Evaluate(
+                                    transactionCommitStarted,
+                                    transactionCommitArmed,
+                                    transactionDisposeReturned);
+                                transactionFinalizationAmbiguous =
+                                    LegacyTransactionFinalizationPolicy.RequiresAmbiguityGuard(
+                                        transactionOutcome);
+                                transactionRollbackFailed =
+                                    transactionOutcome == LegacyTransactionFinalizationOutcome.RollbackFailed;
+                                if (transactionFinalizationAmbiguous)
+                                {
+                                    transactionCommitStateAmbiguous = true;
+                                    MarkCommittedUnsavedChanges(false);
+                                }
+
+                                if (transactionOperationException != null &&
+                                    transactionDisposeException != null)
+                                {
+                                    diagnostics.Add(ExceptionDiagnostic(
+                                        OpennessDiagnosticCodes.TransactionFailed,
+                                        "The transaction operation failed: " +
+                                        transactionOperationException.Message +
+                                        ". Transaction cleanup also failed: " +
+                                        transactionDisposeException.Message,
+                                        plan.EffectiveProjectPath,
+                                        transactionDisposeException));
+                                }
+
+                                var transactionFailure = SelectFinalizationFailure(
+                                    transactionOperationException,
+                                    transactionDisposeException);
+                                if (transactionFailure != null)
+                                {
+                                    throw transactionFailure;
+                                }
+
+                                if (transactionOutcome != LegacyTransactionFinalizationOutcome.Committed)
+                                {
+                                    throw new InvalidOperationException(
+                                        "The TIA transaction ended without a committed result.");
+                                }
+
+                                transactionCommitted = true;
+                                importedSourceCount = plan.Sources.Count(source => source.ShouldImport);
+                                MarkCommittedUnsavedChanges(false);
+                            }
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        exclusiveOperationException = exception;
+                    }
+
+                    if (exclusive != null)
+                    {
+                        try
+                        {
+                            exclusive.Dispose();
+                            exclusiveDisposeReturned = true;
+                        }
+                        catch (Exception exception)
+                        {
+                            exclusiveDisposeException = exception;
+                        }
+                    }
+
+                    exclusiveAccessReleaseFailed =
+                        exclusive != null && !exclusiveDisposeReturned;
+                    if (exclusiveOperationException != null &&
+                        exclusiveDisposeException != null)
+                    {
+                        diagnostics.Add(ExceptionDiagnostic(
+                            mutationAttempted
+                                ? OpennessDiagnosticCodes.TransactionFailed
+                                : OpennessDiagnosticCodes.PreflightFailed,
+                            "The guarded export operation failed: " +
+                            exclusiveOperationException.Message +
+                            ". ExclusiveAccess cleanup also failed: " +
+                            exclusiveDisposeException.Message,
+                            plan == null ? string.Empty : plan.EffectiveProjectPath,
+                            exclusiveDisposeException));
+                    }
+
+                    var exclusiveFailure = SelectFinalizationFailure(
+                        exclusiveOperationException,
+                        exclusiveDisposeException);
+                    if (exclusiveFailure != null)
+                    {
+                        throw exclusiveFailure;
+                    }
+
+                    if (earlyResult != null)
+                    {
+                        return earlyResult;
                     }
                 }
-            }
             catch (OperationCanceledException exception)
             {
                 diagnostics.Add(ExceptionDiagnostic(
@@ -3765,10 +4933,40 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         ? OpennessDiagnosticCodes.TransactionCancelled
                         : OpennessDiagnosticCodes.PreflightFailed,
                     mutationAttempted
-                        ? "TIA cancelled the transactional import. No transaction changes were committed."
+                        ? transactionCommitted
+                            ? "The transaction committed, but TIA cancelled while releasing ExclusiveAccess. The project may remain unsaved and the session will be quarantined."
+                            : transactionFinalizationAmbiguous
+                            ? transactionRollbackFailed
+                                ? "TIA cancelled after transaction rollback cleanup failed. The transaction state is ambiguous; restart the application before another mutation."
+                                : "TIA cancelled while finalizing a transaction after commit was requested. The commit state is ambiguous; preserve the session and verify/save it explicitly."
+                            : "TIA cancelled the transactional import before commit was requested. No transaction changes were committed."
                         : "TIA cancelled the guarded repeated preflight.",
                     plan == null ? string.Empty : plan.EffectiveProjectPath,
                     exception));
+                if (transactionFinalizationAmbiguous || transactionCommitted)
+                {
+                    diagnostics.Add(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.UnsavedChangesRequireManualSave,
+                        DiagnosticSeverity.Warning,
+                        transactionCommitted
+                            ? "The transaction committed before ExclusiveAccess release failed. Treat the project as unsaved and restart the application before reconnecting."
+                            : "The transaction finalization state is ambiguous. Do not reconnect or close the adapter-owned session until the project has been verified and saved.",
+                        plan == null ? string.Empty : plan.EffectiveProjectPath));
+                }
+
+                if (transactionDisposeFailed)
+                {
+                    QuarantineAfterTransactionDisposeFailure(
+                        diagnostics,
+                        plan == null ? string.Empty : plan.EffectiveProjectPath);
+                }
+                else if (exclusiveAccessReleaseFailed)
+                {
+                    QuarantineAfterExclusiveAccessReleaseFailure(
+                        diagnostics,
+                        plan == null ? string.Empty : plan.EffectiveProjectPath);
+                }
+
                 return new TiaExportResult(
                     TiaExportOutcome.Failed,
                     0,
@@ -3790,10 +4988,40 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         ? OpennessDiagnosticCodes.TransactionFailed
                         : OpennessDiagnosticCodes.PreflightFailed,
                     mutationAttempted
-                        ? "Transactional import failed and was not committed: " + exception.Message
+                        ? transactionCommitted
+                            ? "The transaction committed, but releasing ExclusiveAccess failed. The project may remain unsaved and the session will be quarantined: " + exception.Message
+                            : transactionFinalizationAmbiguous
+                            ? transactionRollbackFailed
+                                ? "Transaction rollback cleanup failed; the transaction state is ambiguous: " + exception.Message
+                                : "Transaction finalization failed after commit was requested; the commit state is ambiguous: " + exception.Message
+                            : "Transactional import failed before commit was requested and was not committed: " + exception.Message
                         : "The guarded repeated preflight failed before mutation: " + exception.Message,
                     plan == null ? string.Empty : plan.EffectiveProjectPath,
                     exception));
+                if (transactionFinalizationAmbiguous || transactionCommitted)
+                {
+                    diagnostics.Add(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.UnsavedChangesRequireManualSave,
+                        DiagnosticSeverity.Warning,
+                        transactionCommitted
+                            ? "The transaction committed before ExclusiveAccess release failed. Treat the project as unsaved and restart the application before reconnecting."
+                            : "The transaction may have committed changes. Preserve the current session and verify/save the project explicitly.",
+                        plan == null ? string.Empty : plan.EffectiveProjectPath));
+                }
+
+                if (transactionDisposeFailed)
+                {
+                    QuarantineAfterTransactionDisposeFailure(
+                        diagnostics,
+                        plan == null ? string.Empty : plan.EffectiveProjectPath);
+                }
+                else if (exclusiveAccessReleaseFailed)
+                {
+                    QuarantineAfterExclusiveAccessReleaseFailure(
+                        diagnostics,
+                        plan == null ? string.Empty : plan.EffectiveProjectPath);
+                }
+
                 return new TiaExportResult(
                     TiaExportOutcome.Failed,
                     0,
@@ -3806,10 +5034,11 @@ namespace TiaSclStudio.Openness.Legacy.V17
             {
                 compilationAttempted = true;
                 compileHasErrors = !CompilePlc(diagnostics);
-                if (HasUnsavedProjectChanges())
-                {
-                    committedUnsavedChanges = true;
-                }
+                // Compilation can change Portal state even when this request had
+                // no transactional import. Keep conservative evidence until a
+                // real dirty observation followed by clean, or an explicit save.
+                MarkCommittedUnsavedChanges(false);
+                HasUnsavedProjectChanges();
             }
 
             var saveFailed = false;
@@ -3828,17 +5057,22 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     try
                     {
                         project.Save();
-                        committedUnsavedChanges = false;
-                        if (HasUnsavedProjectChanges())
+                        var saveObservation = ReadProjectModifiedObservation();
+                        if (saveObservation != LegacyProjectModifiedObservation.Clean)
                         {
                             saveFailed = true;
+                            MarkCommittedUnsavedChanges(
+                                saveObservation == LegacyProjectModifiedObservation.Dirty);
                             diagnostics.Add(Error(
                                 OpennessDiagnosticCodes.ProjectSaveFailed,
-                                "Project.Save returned, but the project still reports unsaved changes. Save or retry before closing this application.",
+                                saveObservation == LegacyProjectModifiedObservation.Dirty
+                                    ? "Project.Save returned, but the project still reports unsaved changes. Save or retry before closing this application."
+                                    : "Project.Save returned, but the saved/dirty state could not be verified. Preserve the session and retry before closing this application.",
                                 plan.EffectiveProjectPath));
                         }
                         else
                         {
+                            ClearCommittedUnsavedChanges();
                             diagnostics.Add(new OpennessDiagnostic(
                                 OpennessDiagnosticCodes.ProjectSaved,
                                 DiagnosticSeverity.Information,
@@ -3857,7 +5091,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     catch (Exception exception)
                     {
                         saveFailed = true;
-                        committedUnsavedChanges = true;
+                        MarkCommittedUnsavedChanges(false);
                         diagnostics.Add(ExceptionDiagnostic(
                             OpennessDiagnosticCodes.ProjectSaveFailed,
                             "The import was committed, but Project.Save failed. Save or retry before closing this application: " + exception.Message,
@@ -3867,12 +5101,19 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 }
             }
 
-            var failed = compileHasErrors || saveFailed;
+            var readbackFailed = false;
+            if (request.VerifySavedExportAfterReopen && !compileHasErrors && !saveFailed)
+            {
+                readbackAttempted = true;
+                readbackSucceeded = TryReopenAndVerifyExport(plan, request, diagnostics);
+                readbackFailed = !readbackSucceeded;
+            }
+
+            var failed = compileHasErrors || saveFailed || readbackFailed;
             if (!request.SaveProjectAfterExport &&
                 (transactionCommitted || compilationAttempted) &&
                 HasUnsavedProjectChanges())
             {
-                committedUnsavedChanges = true;
                 diagnostics.Add(new OpennessDiagnostic(
                     OpennessDiagnosticCodes.UnsavedChangesRequireManualSave,
                     DiagnosticSeverity.Warning,
@@ -3906,32 +5147,88 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 failed ? TiaExportOutcome.Failed : TiaExportOutcome.Succeeded,
                 importedSourceCount,
                 compilationAttempted,
-                diagnostics);
+                diagnostics,
+                readbackAttempted,
+                readbackSucceeded);
                 }
                 catch (NonRecoverableException exception)
                 {
-                    HandleSessionLost(
-                        diagnostics,
-                        "TIA Portal closed the session during export: " + exception.Message,
-                        exception);
+                    var cleanupFailed = transactionDisposeFailed ||
+                        exclusiveAccessReleaseFailed;
+                    var mayHaveUnsavedChanges = transactionCommitted ||
+                        transactionFinalizationAmbiguous ||
+                        compilationAttempted ||
+                        transactionCommitStateAmbiguous ||
+                        committedUnsavedChanges;
+                    if (cleanupFailed || mayHaveUnsavedChanges)
+                    {
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.SessionLost,
+                            "TIA Portal reported a non-recoverable failure while finalizing export: " +
+                            exception.Message +
+                            ". Cleanup is indeterminate, so no further Openness requests are allowed in this application process.",
+                            plan == null ? string.Empty : plan.EffectiveProjectPath,
+                            exception));
+                        if (mayHaveUnsavedChanges)
+                        {
+                            MarkCommittedUnsavedChanges(false);
+                            diagnostics.Add(new OpennessDiagnostic(
+                                OpennessDiagnosticCodes.UnsavedChangesRequireManualSave,
+                                DiagnosticSeverity.Warning,
+                                "The operation may have left committed changes unsaved. Preserve the TIA project state and restart TIA SCL Studio before reconnecting.",
+                                plan == null ? string.Empty : plan.EffectiveProjectPath));
+                        }
+
+                        if (transactionDisposeFailed)
+                        {
+                            QuarantineAfterTransactionDisposeFailure(
+                                diagnostics,
+                                plan == null ? string.Empty : plan.EffectiveProjectPath);
+                        }
+                        else if (exclusiveAccessReleaseFailed)
+                        {
+                            QuarantineAfterExclusiveAccessReleaseFailure(
+                                diagnostics,
+                                plan == null ? string.Empty : plan.EffectiveProjectPath);
+                        }
+                        else
+                        {
+                            QuarantineAfterIndeterminateExportState(
+                                diagnostics,
+                                plan == null ? string.Empty : plan.EffectiveProjectPath);
+                        }
+                    }
+                    else
+                    {
+                        HandleSessionLost(
+                            diagnostics,
+                            "TIA Portal closed the session during export: " + exception.Message,
+                            exception);
+                    }
+
                     return new TiaExportResult(
                         TiaExportOutcome.Failed,
                         importedSourceCount,
                         compilationAttempted,
-                        diagnostics);
+                        diagnostics,
+                        readbackAttempted,
+                        readbackSucceeded);
                 }
                 catch (EngineeringSecurityException exception)
                 {
-                    if (mutationAttempted || compilationAttempted)
+                    var mayHaveUnsavedChanges = transactionCommitted ||
+                        transactionFinalizationAmbiguous ||
+                        compilationAttempted;
+                    if (mayHaveUnsavedChanges)
                     {
-                        committedUnsavedChanges = true;
+                        MarkCommittedUnsavedChanges(false);
                     }
 
                     HandleAccessDenied(
                         diagnostics,
                         "TIA Openness access was denied during export: " + exception.Message,
                         exception);
-                    if (mutationAttempted || compilationAttempted)
+                    if (mayHaveUnsavedChanges)
                     {
                         diagnostics.Add(new OpennessDiagnostic(
                             OpennessDiagnosticCodes.UnsavedChangesRequireManualSave,
@@ -3940,17 +5237,471 @@ namespace TiaSclStudio.Openness.Legacy.V17
                             plan == null ? string.Empty : plan.EffectiveProjectPath));
                     }
 
+                    if (transactionDisposeFailed)
+                    {
+                        QuarantineAfterTransactionDisposeFailure(
+                            diagnostics,
+                            plan == null ? string.Empty : plan.EffectiveProjectPath);
+                    }
+                    else if (exclusiveAccessReleaseFailed)
+                    {
+                        QuarantineAfterExclusiveAccessReleaseFailure(
+                            diagnostics,
+                            plan == null ? string.Empty : plan.EffectiveProjectPath);
+                    }
+
                     return new TiaExportResult(
                         TiaExportOutcome.Failed,
                         importedSourceCount,
                         compilationAttempted,
-                        diagnostics);
+                        diagnostics,
+                        readbackAttempted,
+                        readbackSucceeded);
                 }
             }
 
+        private bool TryReopenAndVerifyExport(
+            PreflightPlan plan,
+            TiaExportRequest request,
+            IList<OpennessDiagnostic> diagnostics)
+        {
+            if (plan == null || connectionRequest == null ||
+                connectionRequest.Mode != TiaConnectionMode.StartWithoutUserInterface ||
+                !portalStartedByAdapter || !projectOpenedByAdapter)
+            {
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.ReopenVerificationUnavailable,
+                    "The saved export cannot be verified by reopening because the current session is not an adapter-owned headless Portal/project session.",
+                    plan == null ? string.Empty : plan.EffectiveProjectPath));
+                return false;
+            }
+
+            var reopenRequest = new TiaConnectionRequest(
+                connectionRequest.Mode,
+                null,
+                plan.EffectiveProjectPath,
+                plan.EffectiveDeviceName,
+                plan.EffectiveSoftwareName);
+            var previousPortal = tiaPortal;
+            var previousProject = project;
+            plan.ReleaseEngineeringReferences();
+            try
+            {
+                var reopenStatus = Connect(reopenRequest);
+                AppendUniqueDiagnostics(diagnostics, reopenStatus == null ? null : reopenStatus.Diagnostics);
+                var statusHasErrors = reopenStatus != null && reopenStatus.Diagnostics.Any(
+                    item => item.Severity == DiagnosticSeverity.Error);
+                var projectPathMatches = project != null &&
+                    PathsEqual(GetProjectPath(project), plan.EffectiveProjectPath);
+                if (!LegacyReopenVerificationPolicy.IsFreshOwnedReopen(
+                    reopenStatus != null && reopenStatus.IsConnected,
+                    reopenStatus != null && reopenStatus.CanExport,
+                    statusHasErrors,
+                    previousPortal,
+                    tiaPortal,
+                    previousProject,
+                    project,
+                    plcSoftware != null,
+                    portalStartedByAdapter,
+                    projectOpenedByAdapter,
+                    projectPathMatches))
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.ProjectReopenFailed,
+                        "The project was saved, but the adapter could not close the owned session and reopen the exact PLC target from disk.",
+                        plan.EffectiveProjectPath));
+                    return false;
+                }
+
+                var expectedObjects = plan.Sources
+                    .SelectMany(source => source.RequestedDeclarations)
+                    .Select(declaration => new LegacyExportReadbackObject(
+                        MapReadbackObjectKind(declaration.Kind),
+                        declaration.Name,
+                        declaration.IsDataType ? string.Empty : request.OwnershipMarker))
+                    .ToList();
+                var requestedObjectNames = new HashSet<string>(
+                    expectedObjects.Select(item => item.Name),
+                    StringComparer.OrdinalIgnoreCase);
+                var targetedLookupBudget = new LegacyTargetedComLookupBudget();
+                var locations = CollectRequestedExportObjectLocations(
+                    requestedObjectNames,
+                    targetedLookupBudget);
+                var actualObjects = new List<LegacyExportReadbackObject>();
+                foreach (var location in locations)
+                {
+                    LegacyExportReadbackObjectKind kind;
+                    if (!TryMapReadbackObjectKind(location, out kind))
+                    {
+                        continue;
+                    }
+
+                    var matchingRequestedKind = expectedObjects.Any(expected =>
+                        expected.Kind == kind &&
+                        string.Equals(expected.Name, location.Name, StringComparison.OrdinalIgnoreCase));
+                    var marker = location.Block == null || !matchingRequestedKind
+                        ? string.Empty
+                        : location.Block.HeaderFamily ?? string.Empty;
+                    actualObjects.Add(new LegacyExportReadbackObject(kind, location.Name, marker));
+                }
+
+                var expectedTags = request.Tags.Select(tag => new LegacyExportReadbackTag(
+                    tag.TableName,
+                    tag.Name,
+                    tag.DataType,
+                    tag.LogicalAddress,
+                    tag.Comment)).ToList();
+                var actualTags = CollectRequestedReadbackTags(
+                    request.Tags,
+                    targetedLookupBudget);
+                var structuralReadback = LegacyExportReadbackPolicy.Verify(
+                    expectedObjects,
+                    actualObjects,
+                    expectedTags,
+                    actualTags,
+                    request.OwnershipMarker);
+                foreach (var issue in structuralReadback.Issues)
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.ExportReadbackFailed,
+                        issue.Message,
+                        issue.Location));
+                }
+
+                var sourceMatches = VerifyRequestedSourceContentAfterReopen(
+                    plan,
+                    locations,
+                    diagnostics);
+                if (!structuralReadback.IsSuccess || !sourceMatches)
+                {
+                    return false;
+                }
+
+                diagnostics.Add(new OpennessDiagnostic(
+                    OpennessDiagnosticCodes.ExportReadbackSucceeded,
+                    DiagnosticSeverity.Information,
+                    "The saved project was closed, reopened from disk and every requested FB, FC, DB, UDT and PLC tag was read back successfully.",
+                    plan.EffectiveProjectPath));
+                return true;
+            }
+            catch (NonRecoverableException exception)
+            {
+                HandleSessionLost(
+                    diagnostics,
+                    "TIA Portal closed the session during save/reopen/readback verification: " + exception.Message,
+                    exception);
+            }
+            catch (EngineeringSecurityException exception)
+            {
+                HandleAccessDenied(
+                    diagnostics,
+                    "TIA Openness access was denied during save/reopen/readback verification: " + exception.Message,
+                    exception);
+            }
+            catch (Exception exception)
+            {
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.ExportReadbackFailed,
+                    "The project was saved, but reopen/readback verification failed: " + exception.Message,
+                    plan.EffectiveProjectPath,
+                    exception));
+            }
+
+            return false;
+        }
+
+        private bool VerifyRequestedSourceContentAfterReopen(
+            PreflightPlan plan,
+            IList<ExportObjectLocation> locations,
+            IList<OpennessDiagnostic> diagnostics)
+        {
+            var success = true;
+            foreach (var source in plan.Sources)
+            {
+                foreach (var declaration in source.RequestedDeclarations)
+                {
+                    var matching = locations.Where(location =>
+                            string.Equals(location.Name, declaration.Name, StringComparison.OrdinalIgnoreCase) &&
+                            location.DeclarationKind == declaration.Kind)
+                        .ToList();
+                    if (matching.Count != 1)
+                    {
+                        // The pure structural policy already reports the precise
+                        // missing/duplicate/wrong-kind issue.
+                        success = false;
+                        continue;
+                    }
+
+                    var actual = matching[0];
+                    if (actual.IsSoftwareUnit)
+                    {
+                        diagnostics.Add(Error(
+                            OpennessDiagnosticCodes.ExportReadbackFailed,
+                            "Requested object '" + declaration.Name +
+                            "' was read back inside a Software Unit instead of the approved root PLC scope.",
+                            actual.GroupPath));
+                        success = false;
+                        continue;
+                    }
+
+                    try
+                    {
+                        var expectedText = SclSourceInspector.GetSingleDeclarationSource(
+                            source.RequestedImportText,
+                            declaration.Kind,
+                            declaration.Name);
+                        var actualText = GenerateEngineeringSource(
+                            actual.SourceObject,
+                            actual.ExternalSourceGroup,
+                            declaration.IsDataType ? ".udt" : ".scl",
+                            declaration.Name,
+                            diagnostics);
+                        var expectedCanonical = SclSourceInspector.Canonicalize(expectedText);
+                        var actualCanonical = SclSourceInspector.Canonicalize(actualText);
+                        if (!string.Equals(expectedCanonical, actualCanonical, StringComparison.Ordinal))
+                        {
+                            diagnostics.Add(Error(
+                                OpennessDiagnosticCodes.ExportReadbackFailed,
+                                "Read-back SCL for '" + declaration.Name +
+                                "' does not match the functionally canonicalized approved source.",
+                                declaration.Name));
+                            success = false;
+                        }
+                    }
+                    catch (NonRecoverableException)
+                    {
+                        throw;
+                    }
+                    catch (EngineeringSecurityException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.ExportReadbackFailed,
+                            "Read-back SCL for '" + declaration.Name +
+                            "' could not be generated and compared: " + exception.Message,
+                            declaration.Name,
+                            exception));
+                        success = false;
+                    }
+                }
+            }
+
+            return success;
+        }
+
+        private static LegacyExportReadbackObjectKind MapReadbackObjectKind(
+            SclDeclarationKind kind)
+        {
+            switch (kind)
+            {
+                case SclDeclarationKind.DataType:
+                    return LegacyExportReadbackObjectKind.DataType;
+                case SclDeclarationKind.FunctionBlock:
+                    return LegacyExportReadbackObjectKind.FunctionBlock;
+                case SclDeclarationKind.Function:
+                    return LegacyExportReadbackObjectKind.Function;
+                case SclDeclarationKind.DataBlock:
+                    return LegacyExportReadbackObjectKind.DataBlock;
+                default:
+                    throw new InvalidOperationException(
+                        "Organization blocks are not valid export readback targets.");
+            }
+        }
+
+        private static bool TryMapReadbackObjectKind(
+            ExportObjectLocation location,
+            out LegacyExportReadbackObjectKind kind)
+        {
+            kind = LegacyExportReadbackObjectKind.DataType;
+            if (location.Type != null)
+            {
+                return true;
+            }
+
+            switch (location.DeclarationKind)
+            {
+                case SclDeclarationKind.FunctionBlock:
+                    kind = LegacyExportReadbackObjectKind.FunctionBlock;
+                    return true;
+                case SclDeclarationKind.Function:
+                    kind = LegacyExportReadbackObjectKind.Function;
+                    return true;
+                case SclDeclarationKind.DataBlock:
+                    kind = LegacyExportReadbackObjectKind.DataBlock;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static void AppendUniqueDiagnostics(
+            ICollection<OpennessDiagnostic> target,
+            IEnumerable<OpennessDiagnostic> source)
+        {
+            if (target == null || source == null)
+            {
+                return;
+            }
+
+            foreach (var diagnostic in source)
+            {
+                if (diagnostic != null && !target.Any(existing =>
+                    string.Equals(existing.Code, diagnostic.Code, StringComparison.Ordinal) &&
+                    existing.Severity == diagnostic.Severity &&
+                    string.Equals(existing.Message, diagnostic.Message, StringComparison.Ordinal) &&
+                    string.Equals(existing.Location, diagnostic.Location, StringComparison.Ordinal)))
+                {
+                    target.Add(diagnostic);
+                }
+            }
+        }
+
+        private List<LegacyExportReadbackTag> CollectRequestedReadbackTags(
+            IEnumerable<TiaPlcTag> requestedTags,
+            LegacyTargetedComLookupBudget targetedLookupBudget)
+        {
+            if (requestedTags == null)
+            {
+                throw new ArgumentNullException(nameof(requestedTags));
+            }
+
+            if (targetedLookupBudget == null)
+            {
+                throw new ArgumentNullException(nameof(targetedLookupBudget));
+            }
+
+            var requested = requestedTags.ToList();
+            if (requested.Count > LegacyLibraryReadbackPolicy.MaximumTagCount)
+            {
+                throw new InvalidOperationException(
+                    "The requested PLC-tag readback count exceeds the configured safety limit.");
+            }
+
+            var result = new List<LegacyExportReadbackTag>();
+            if (requested.Count == 0)
+            {
+                return result;
+            }
+
+            var expectedByTable = requested
+                .GroupBy(item => item.TableName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.ToList(),
+                    StringComparer.OrdinalIgnoreCase);
+            var visitedGroups = 0;
+            var visitedMatchingTables = 0;
+            AddRequestedReadbackTags(
+                plcSoftware.TagTableGroup,
+                expectedByTable,
+                project.LanguageSettings.EditingLanguage,
+                project.LanguageSettings.ReferenceLanguage,
+                result,
+                targetedLookupBudget,
+                ref visitedGroups,
+                ref visitedMatchingTables,
+                0);
+            return result;
+        }
+
+        private static void AddRequestedReadbackTags(
+            PlcTagTableGroup group,
+            IDictionary<string, List<TiaPlcTag>> expectedByTable,
+            Language editingLanguage,
+            Language referenceLanguage,
+            ICollection<LegacyExportReadbackTag> result,
+            LegacyTargetedComLookupBudget targetedLookupBudget,
+            ref int visitedGroups,
+            ref int visitedMatchingTables,
+            int depth)
+        {
+            if (group == null)
+            {
+                return;
+            }
+
+            visitedGroups++;
+            if (visitedGroups > LegacyLibraryReadbackPolicy.MaximumTagGroupCount ||
+                depth > LegacyLibraryReadbackPolicy.MaximumTagGroupDepth)
+            {
+                throw new InvalidOperationException(
+                    "The PLC-tag group topology exceeds the configured readback safety limit.");
+            }
+
+            foreach (var expectedTable in expectedByTable)
+            {
+                targetedLookupBudget.Consume("looking up a requested PLC-tag table during readback");
+                var table = group.TagTables.Find(expectedTable.Key);
+                if (table == null)
+                {
+                    continue;
+                }
+
+                visitedMatchingTables++;
+                if (visitedMatchingTables > LegacyLibraryReadbackPolicy.MaximumTagTableCount)
+                {
+                    throw new InvalidOperationException(
+                        "The matching PLC-tag table count exceeds the configured readback safety limit.");
+                }
+
+                foreach (var expectedTag in expectedTable.Value)
+                {
+                    targetedLookupBudget.Consume("looking up a requested PLC tag during readback");
+                    var tag = table.Tags.Find(expectedTag.Name);
+                    if (tag == null)
+                    {
+                        continue;
+                    }
+
+                    if (result.Count >= LegacyLibraryReadbackPolicy.MaximumTagCount)
+                    {
+                        throw new InvalidOperationException(
+                            "The relevant PLC-tag count exceeds the configured readback safety limit.");
+                    }
+
+                    targetedLookupBudget.Consume(
+                        "reading a requested PLC-tag comment during readback");
+                    var comment = ReadPlcTagWriteLanguageComment(
+                        tag,
+                        editingLanguage,
+                        referenceLanguage);
+                    ValidateTagCatalogField(table.Name, "table name");
+                    ValidateTagCatalogField(tag.Name, "name");
+                    ValidateTagCatalogField(tag.DataTypeName, "data type");
+                    ValidateTagCatalogField(tag.LogicalAddress, "logical address");
+                    ValidateTagCatalogField(comment, "comment");
+                    result.Add(new LegacyExportReadbackTag(
+                        table.Name,
+                        tag.Name,
+                        tag.DataTypeName,
+                        tag.LogicalAddress,
+                        comment));
+                }
+            }
+
+            foreach (var child in group.Groups)
+            {
+                if (child != null)
+                {
+                    AddRequestedReadbackTags(
+                        child,
+                        expectedByTable,
+                        editingLanguage,
+                        referenceLanguage,
+                        result,
+                        targetedLookupBudget,
+                        ref visitedGroups,
+                        ref visitedMatchingTables,
+                        depth + 1);
+                }
+            }
+        }
+
         private void ApplyTagPlans(
             PreflightPlan plan,
-            IList<OpennessDiagnostic> diagnostics,
             ExclusiveAccess exclusive)
         {
             var tables = EnumerateTagTables(plcSoftware.TagTableGroup)
@@ -3990,54 +5741,37 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     tag.LogicalAddress = tagPlan.Definition.LogicalAddress;
                 }
 
-                TrySetTagComment(tag, tagPlan.Definition.Comment, diagnostics);
+                if (tagPlan.UpdateComment)
+                {
+                    SetTagComment(tag, tagPlan.Definition.Comment);
+                }
             }
         }
 
-        private void TrySetTagComment(
+        private void SetTagComment(
             PlcTag tag,
-            string comment,
-            IList<OpennessDiagnostic> diagnostics)
+            string comment)
         {
-            if (tag == null || string.IsNullOrEmpty(comment))
+            if (tag == null)
             {
-                return;
+                throw new ArgumentNullException(nameof(tag));
             }
 
-            try
+            var language = project.LanguageSettings.EditingLanguage ??
+                project.LanguageSettings.ReferenceLanguage;
+            var multilingualComment = tag.Comment;
+            var item = language == null || multilingualComment == null ||
+                multilingualComment.Items == null
+                ? null
+                : multilingualComment.Items.Find(language);
+            if (item == null)
             {
-                var language = project.LanguageSettings.EditingLanguage ??
-                    project.LanguageSettings.ReferenceLanguage;
-                var item = language == null ? null : tag.Comment.Items.Find(language);
-                if (item == null)
-                {
-                    diagnostics.Add(new OpennessDiagnostic(
-                        OpennessDiagnosticCodes.TagCommentSkipped,
-                        DiagnosticSeverity.Warning,
-                        "The tag was written, but no editing/reference language comment item is available.",
-                        tag.Name));
-                    return;
-                }
+                throw new InvalidOperationException(
+                    "PLC tag '" + tag.Name +
+                    "' has no editing/reference-language comment item; the requested comment cannot be applied transactionally.");
+            }
 
-                item.Text = comment;
-            }
-            catch (NonRecoverableException)
-            {
-                throw;
-            }
-            catch (EngineeringSecurityException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                diagnostics.Add(ExceptionDiagnostic(
-                    OpennessDiagnosticCodes.TagCommentSkipped,
-                    "The tag was written, but its multilingual comment could not be updated: " + exception.Message,
-                    tag.Name,
-                    exception,
-                    DiagnosticSeverity.Warning));
-            }
+            item.Text = comment ?? string.Empty;
         }
 
         private void GenerateSources(
@@ -4046,7 +5780,8 @@ namespace TiaSclStudio.Openness.Legacy.V17
             IList<OpennessDiagnostic> diagnostics,
             ExclusiveAccess exclusive)
         {
-            foreach (var source in plan.Sources.OrderBy(item => item.Source.ImportOrder)
+            foreach (var source in plan.Sources.Where(item => item.ShouldImport)
+                .OrderBy(item => item.Source.ImportOrder)
                 .ThenBy(item => item.FullPath, StringComparer.OrdinalIgnoreCase))
             {
                 ThrowIfCancellationRequested(exclusive);
@@ -4227,10 +5962,17 @@ namespace TiaSclStudio.Openness.Legacy.V17
             {
                 if (declaration.IsDataType)
                 {
-                    if (!generatedTypes.ContainsKey(declaration.Name))
+                    PlcType generatedType;
+                    if (!generatedTypes.TryGetValue(declaration.Name, out generatedType))
                     {
                         throw new InvalidOperationException(
                             "The generated object list does not contain PLC data type '" + declaration.Name + "'.");
+                    }
+
+                    if (!(generatedType is PlcStruct))
+                    {
+                        throw new InvalidOperationException(
+                            "The generated object '" + declaration.Name + "' is not the approved STRUCT PLC data type.");
                     }
 
                     continue;
@@ -4246,6 +5988,13 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 if (string.Equals(block.Name, "OB1", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException("OB1 generation is forbidden.");
+                }
+
+                if (GetBlockDeclarationKind(block) != declaration.Kind)
+                {
+                    throw new InvalidOperationException(
+                        "Generated PLC object '" + block.Name + "' has kind " +
+                        GetBlockDeclarationKind(block) + ", but preflight approved " + declaration.Kind + ".");
                 }
 
                 if (!string.Equals(block.HeaderFamily, ownershipMarker, StringComparison.Ordinal))
@@ -4411,16 +6160,119 @@ namespace TiaSclStudio.Openness.Legacy.V17
             }
         }
 
+        private static Exception SelectFinalizationFailure(
+            Exception operationException,
+            Exception disposeException)
+        {
+            if (disposeException is NonRecoverableException)
+            {
+                return disposeException;
+            }
+
+            if (operationException is NonRecoverableException)
+            {
+                return operationException;
+            }
+
+            if (disposeException is EngineeringSecurityException)
+            {
+                return disposeException;
+            }
+
+            if (operationException is EngineeringSecurityException)
+            {
+                return operationException;
+            }
+
+            if (disposeException is OperationCanceledException)
+            {
+                return disposeException;
+            }
+
+            if (operationException is OperationCanceledException)
+            {
+                return operationException;
+            }
+
+            return disposeException ?? operationException;
+        }
+
         private bool ReleaseConnection(
             IList<OpennessDiagnostic> diagnostics,
             bool preserveUnsafeConnection)
         {
-            var hasUnsavedProjectChanges = HasUnsavedProjectChanges();
+            LegacyConnectionReleaseAction releaseAction;
+            return ReleaseConnection(
+                diagnostics,
+                preserveUnsafeConnection,
+                out releaseAction);
+        }
+
+        private bool ReleaseConnection(
+            IList<OpennessDiagnostic> diagnostics,
+            bool preserveUnsafeConnection,
+            out LegacyConnectionReleaseAction releaseAction)
+        {
+            var releaseIntent = preserveUnsafeConnection
+                ? LegacyConnectionReleaseIntent.FinalDispose
+                : LegacyConnectionReleaseIntent.Reconnect;
+            releaseAction = LegacyConnectionReleasePolicy.Decide(
+                IsReleaseFaulted(),
+                false,
+                false,
+                releaseIntent);
+            if (releaseAction == LegacyConnectionReleaseAction.BlockUntilApplicationRestart)
+            {
+                if (diagnostics != null)
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.ConnectionReleaseBlocked,
+                        "A previous TIA session was preserved with unsaved state or its release ended indeterminately. " +
+                        "Starting another Portal session in this application process is blocked; restart TIA SCL Studio.",
+                        string.Empty));
+                }
+
+                return false;
+            }
+
+            var hadUnsavedProjectEvidence = committedUnsavedChanges ||
+                transactionCommitStateAmbiguous;
+            bool hasUnsavedProjectChanges;
+            try
+            {
+                hasUnsavedProjectChanges = HasUnsavedProjectChanges();
+            }
+            catch (NonRecoverableException exception)
+            {
+                if (!hadUnsavedProjectEvidence)
+                {
+                    throw;
+                }
+
+                if (diagnostics != null)
+                {
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.SessionLost,
+                        "TIA Portal became non-recoverable while verifying known unsaved project state. " +
+                        "The current session is quarantined and the application must be restarted: " +
+                        exception.Message,
+                        connectionRequest == null ? string.Empty : connectionRequest.ProjectPath,
+                        exception));
+                }
+
+                QuarantineCurrentSessionWithoutApiCalls();
+                releaseAction = LegacyConnectionReleaseAction.BlockUntilApplicationRestart;
+                return false;
+            }
+
             var isHeadless = connectedPortalMode.HasValue &&
                 connectedPortalMode.Value == TiaPortalMode.WithoutUserInterface;
-            var unsafeToReleasePortal = hasUnsavedProjectChanges &&
-                (portalStartedByAdapter || isHeadless);
-            if (unsafeToReleasePortal && !preserveUnsafeConnection)
+            releaseAction = LegacyConnectionReleasePolicy.Decide(
+                false,
+                hasUnsavedProjectChanges,
+                portalStartedByAdapter || isHeadless,
+                releaseIntent);
+            if (releaseAction == LegacyConnectionReleaseAction.BlockReconnect)
             {
                 if (diagnostics != null)
                 {
@@ -4428,33 +6280,15 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         OpennessDiagnosticCodes.ConnectionReleaseBlocked,
                         "Reconnect was blocked because releasing the current started/headless Portal session could discard unsaved project changes. " +
                         "Save the project explicitly before switching the Portal session.",
-                        GetProjectPath(project)));
+                        connectionRequest == null ? string.Empty : connectionRequest.ProjectPath));
                 }
 
                 return false;
             }
 
-            if (unsafeToReleasePortal && preserveUnsafeConnection)
+            if (releaseAction == LegacyConnectionReleaseAction.PreserveForShutdown)
             {
-                lock (PreservedSessionsLock)
-                {
-                    if (tiaPortal != null)
-                    {
-                        PreservedSessions.Add(tiaPortal);
-                    }
-                }
-
-                project = null;
-                plcSoftware = null;
-                selectedCpuItem = null;
-                tiaPortal = null;
-                connectionRequest = null;
-                projectOpenedByAdapter = false;
-                portalStartedByAdapter = false;
-                committedUnsavedChanges = false;
-                connectedPortalMode = null;
-                selectedDeviceName = string.Empty;
-                selectedSoftwareName = string.Empty;
+                PreserveCurrentSessionWithoutApiCalls();
                 return true;
             }
 
@@ -4465,13 +6299,38 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 {
                     project.Close();
                 }
-                catch (NonRecoverableException)
+                catch (NonRecoverableException exception)
                 {
-                    throw;
+                    if (diagnostics != null)
+                    {
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.SessionLost,
+                            "TIA Portal became non-recoverable while closing the adapter-opened project. " +
+                            "The release state is indeterminate and the application must be restarted: " +
+                            exception.Message,
+                            connectionRequest == null ? string.Empty : connectionRequest.ProjectPath,
+                            exception));
+                    }
+
+                    QuarantineCurrentSessionWithoutApiCalls();
+                    releaseAction = LegacyConnectionReleaseAction.BlockUntilApplicationRestart;
+                    return false;
                 }
-                catch (EngineeringSecurityException)
+                catch (EngineeringSecurityException exception)
                 {
-                    throw;
+                    if (diagnostics != null)
+                    {
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.AccessDenied,
+                            "TIA Openness denied access while closing the adapter-opened project. " +
+                            "The session is quarantined and the application must be restarted: " + exception.Message,
+                            connectionRequest == null ? string.Empty : connectionRequest.ProjectPath,
+                            exception));
+                    }
+
+                    QuarantineCurrentSessionWithoutApiCalls();
+                    releaseAction = LegacyConnectionReleaseAction.BlockUntilApplicationRestart;
+                    return false;
                 }
                 catch (Exception exception)
                 {
@@ -4482,21 +6341,16 @@ namespace TiaSclStudio.Openness.Legacy.V17
                             "The project opened by the adapter could not be closed cleanly: " + exception.Message,
                             connectionRequest == null ? string.Empty : connectionRequest.ProjectPath,
                             exception,
-                            DiagnosticSeverity.Warning));
+                            preserveUnsafeConnection
+                                ? DiagnosticSeverity.Warning
+                                : DiagnosticSeverity.Error));
                     }
+
+                    QuarantineCurrentSessionWithoutApiCalls();
+                    releaseAction = LegacyConnectionReleaseAction.BlockUntilApplicationRestart;
+                    return false;
                 }
             }
-
-            project = null;
-            plcSoftware = null;
-            selectedCpuItem = null;
-            connectionRequest = null;
-            projectOpenedByAdapter = false;
-            portalStartedByAdapter = false;
-            committedUnsavedChanges = false;
-            connectedPortalMode = null;
-            selectedDeviceName = string.Empty;
-            selectedSoftwareName = string.Empty;
 
             if (tiaPortal != null)
             {
@@ -4504,13 +6358,38 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 {
                     tiaPortal.Dispose();
                 }
-                catch (NonRecoverableException)
+                catch (NonRecoverableException exception)
                 {
-                    throw;
+                    if (diagnostics != null)
+                    {
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.SessionLost,
+                            "TIA Portal became non-recoverable while releasing the Portal session. " +
+                            "The release state is indeterminate and the application must be restarted: " +
+                            exception.Message,
+                            string.Empty,
+                            exception));
+                    }
+
+                    QuarantineCurrentSessionWithoutApiCalls();
+                    releaseAction = LegacyConnectionReleaseAction.BlockUntilApplicationRestart;
+                    return false;
                 }
-                catch (EngineeringSecurityException)
+                catch (EngineeringSecurityException exception)
                 {
-                    throw;
+                    if (diagnostics != null)
+                    {
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.AccessDenied,
+                            "TIA Openness denied access while releasing the Portal session. " +
+                            "The session is quarantined and the application must be restarted: " + exception.Message,
+                            string.Empty,
+                            exception));
+                    }
+
+                    QuarantineCurrentSessionWithoutApiCalls();
+                    releaseAction = LegacyConnectionReleaseAction.BlockUntilApplicationRestart;
+                    return false;
                 }
                 catch (Exception exception)
                 {
@@ -4521,31 +6400,83 @@ namespace TiaSclStudio.Openness.Legacy.V17
                             "The TIA Portal session could not be released cleanly: " + exception.Message,
                             string.Empty,
                             exception,
-                            DiagnosticSeverity.Warning));
+                            preserveUnsafeConnection
+                                ? DiagnosticSeverity.Warning
+                                : DiagnosticSeverity.Error));
                     }
+
+                    QuarantineCurrentSessionWithoutApiCalls();
+                    releaseAction = LegacyConnectionReleaseAction.BlockUntilApplicationRestart;
+                    return false;
                 }
             }
 
-            tiaPortal = null;
+            ResetConnectionStateWithoutApiCalls();
             return true;
+        }
+
+        private void MarkCommittedUnsavedChanges(bool observedByPortal)
+        {
+            committedUnsavedChanges = true;
+            if (observedByPortal)
+            {
+                committedUnsavedChangesObservedByPortal = true;
+            }
+        }
+
+        private void ClearCommittedUnsavedChanges()
+        {
+            committedUnsavedChanges = false;
+            committedUnsavedChangesObservedByPortal = false;
+            transactionCommitStateAmbiguous = false;
         }
 
         private bool HasUnsavedProjectChanges()
         {
+            LegacyProjectModifiedObservation observation;
+            return HasUnsavedProjectChanges(out observation);
+        }
+
+        private bool HasUnsavedProjectChanges(out LegacyProjectModifiedObservation observation)
+        {
             if (project == null)
             {
-                return false;
+                observation = LegacyProjectModifiedObservation.Unknown;
+                return committedUnsavedChanges;
+            }
+
+            observation = ReadProjectModifiedObservation();
+            var evidence = LegacyUnsavedEvidencePolicy.Evaluate(
+                committedUnsavedChanges,
+                committedUnsavedChangesObservedByPortal,
+                observation);
+            if (committedUnsavedChanges && !evidence.HasCommittedChanges)
+            {
+                // A confirmed Portal-dirty -> Portal-clean transition is enough
+                // evidence that the retained unsaved state no longer exists.
+                ClearCommittedUnsavedChanges();
+            }
+            else
+            {
+                committedUnsavedChanges = evidence.HasCommittedChanges;
+                committedUnsavedChangesObservedByPortal = evidence.DirtyWasObserved;
+            }
+
+            return evidence.HasUnsavedChanges;
+        }
+
+        private LegacyProjectModifiedObservation ReadProjectModifiedObservation()
+        {
+            if (project == null)
+            {
+                return LegacyProjectModifiedObservation.Unknown;
             }
 
             try
             {
-                var isModified = project.IsModified;
-                if (!isModified)
-                {
-                    committedUnsavedChanges = false;
-                }
-
-                return isModified || committedUnsavedChanges;
+                return project.IsModified
+                    ? LegacyProjectModifiedObservation.Dirty
+                    : LegacyProjectModifiedObservation.Clean;
             }
             catch (NonRecoverableException)
             {
@@ -4557,8 +6488,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
             }
             catch (Exception)
             {
-                // If state cannot be read, never assume that closing is safe.
-                return true;
+                return LegacyProjectModifiedObservation.Unknown;
             }
         }
 
@@ -4611,11 +6541,122 @@ namespace TiaSclStudio.Openness.Legacy.V17
             {
                 lock (PreservedSessionsLock)
                 {
-                    PreservedSessions.Add(currentPortal);
+                    if (!PreservedSessions.Any(item => ReferenceEquals(item, currentPortal)))
+                    {
+                        PreservedSessions.Add(currentPortal);
+                    }
+
+                    // This path intentionally keeps an unsafe headless/started
+                    // session alive. No second gateway may start another Portal
+                    // in the same application process.
+                    releaseFaultRequiresApplicationRestart = true;
                 }
             }
 
+            ResetConnectionStatePreservingEvidenceWithoutApiCalls();
+        }
+
+        private void QuarantineCurrentSessionWithoutApiCalls()
+        {
+            var currentPortal = tiaPortal;
+            lock (PreservedSessionsLock)
+            {
+                if (currentPortal != null &&
+                    !PreservedSessions.Any(item => ReferenceEquals(item, currentPortal)))
+                {
+                    PreservedSessions.Add(currentPortal);
+                }
+
+                releaseFaultRequiresApplicationRestart = true;
+            }
+
+            ResetConnectionStatePreservingEvidenceWithoutApiCalls();
+        }
+
+        private void ResetConnectionStatePreservingEvidenceWithoutApiCalls()
+        {
+            var retainedCommittedUnsavedChanges = committedUnsavedChanges;
+            var retainedCommittedUnsavedChangesObservedByPortal =
+                committedUnsavedChangesObservedByPortal;
+            var retainedTransactionCommitStateAmbiguous =
+                transactionCommitStateAmbiguous;
             ResetConnectionStateWithoutApiCalls();
+            committedUnsavedChanges = retainedCommittedUnsavedChanges;
+            committedUnsavedChangesObservedByPortal =
+                retainedCommittedUnsavedChangesObservedByPortal;
+            transactionCommitStateAmbiguous =
+                retainedTransactionCommitStateAmbiguous;
+        }
+
+        private void QuarantineAfterTransactionDisposeFailure(
+            ICollection<OpennessDiagnostic> diagnostics,
+            string location)
+        {
+            if (diagnostics != null)
+            {
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.ConnectionReleaseBlocked,
+                    "The TIA transaction object could not be disposed cleanly. " +
+                    "No further Openness requests are accepted in this application process; restart TIA SCL Studio before reconnecting.",
+                    location));
+            }
+
+            QuarantineCurrentSessionWithoutApiCalls();
+            status = CreateStatus(
+                false,
+                false,
+                "TIA transaction cleanup was indeterminate; restart TIA SCL Studio",
+                diagnostics);
+        }
+
+        private void QuarantineAfterExclusiveAccessReleaseFailure(
+            ICollection<OpennessDiagnostic> diagnostics,
+            string location)
+        {
+            if (diagnostics != null)
+            {
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.ConnectionReleaseBlocked,
+                    "ExclusiveAccess could not be released cleanly. " +
+                    "No further Openness requests are accepted in this application process; restart TIA SCL Studio before reconnecting.",
+                    location));
+            }
+
+            QuarantineCurrentSessionWithoutApiCalls();
+            status = CreateStatus(
+                false,
+                false,
+                "TIA ExclusiveAccess cleanup was indeterminate; restart TIA SCL Studio",
+                diagnostics);
+        }
+
+        private void QuarantineAfterIndeterminateExportState(
+            ICollection<OpennessDiagnostic> diagnostics,
+            string location)
+        {
+            if (diagnostics != null)
+            {
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.ConnectionReleaseBlocked,
+                    "The TIA session became non-recoverable after export may have changed the project. " +
+                    "No further Openness requests are accepted in this application process; restart TIA SCL Studio before reconnecting.",
+                    location));
+            }
+
+            QuarantineCurrentSessionWithoutApiCalls();
+            status = CreateStatus(
+                false,
+                false,
+                "TIA export state is indeterminate; restart TIA SCL Studio",
+                diagnostics);
+        }
+
+        private static bool IsReleaseFaulted()
+        {
+            lock (PreservedSessionsLock)
+            {
+                return releaseFaultRequiresApplicationRestart;
+            }
         }
 
         private void ResetConnectionStateWithoutApiCalls()
@@ -4628,7 +6669,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
             connectionRequest = null;
             projectOpenedByAdapter = false;
             portalStartedByAdapter = false;
-            committedUnsavedChanges = false;
+            ClearCommittedUnsavedChanges();
             connectedPortalMode = null;
             selectedDeviceName = string.Empty;
             selectedSoftwareName = string.Empty;
@@ -4683,6 +6724,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 "SOFTWARE=" + plan.EffectiveSoftwareName,
                 "COMPILE=" + request.CompileAfterImport,
                 "SAVE=" + request.SaveProjectAfterExport,
+                "VERIFY_REOPEN=" + request.VerifySavedExportAfterReopen,
                 "TAG_UPDATES=" + request.AllowTagUpdates,
                 "BLOCK_OVERWRITE=" + request.AllowOwnedBlockOverwrite,
                 "MARKER=" + request.OwnershipMarker
@@ -5174,6 +7216,53 @@ namespace TiaSclStudio.Openness.Legacy.V17
             }
         }
 
+        private sealed class ExportObjectLocation
+        {
+            public ExportObjectLocation(
+                PlcBlock block,
+                PlcType type,
+                PlcExternalSourceSystemGroup externalSourceGroup,
+                string groupPath,
+                bool isSoftwareUnit)
+            {
+                if ((block == null) == (type == null))
+                {
+                    throw new ArgumentException("Exactly one PLC block or PLC type is required.");
+                }
+
+                Block = block;
+                Type = type;
+                ExternalSourceGroup = externalSourceGroup;
+                GroupPath = groupPath ?? string.Empty;
+                IsSoftwareUnit = isSoftwareUnit;
+            }
+
+            public PlcBlock Block { get; private set; }
+
+            public PlcType Type { get; private set; }
+
+            public PlcExternalSourceSystemGroup ExternalSourceGroup { get; private set; }
+
+            public string GroupPath { get; private set; }
+
+            public bool IsSoftwareUnit { get; private set; }
+
+            public string Name
+            {
+                get { return Block == null ? Type.Name : Block.Name; }
+            }
+
+            public SclDeclarationKind DeclarationKind
+            {
+                get { return Block == null ? SclDeclarationKind.DataType : GetBlockDeclarationKind(Block); }
+            }
+
+            public IGenerateSource SourceObject
+            {
+                get { return Block == null ? (IGenerateSource)Type : Block; }
+            }
+        }
+
         private sealed class ValidatedSource
         {
             public ValidatedSource(
@@ -5187,7 +7276,15 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 FullPath = fullPath;
                 ContentHash = contentHash;
                 ImportBytes = (byte[])importBytes.Clone();
-                Declarations = new List<SclDeclaration>(declarations);
+                ImportText = new UTF8Encoding(true, true).GetString(
+                    ImportBytes,
+                    ImportBytes.Length >= 3 && ImportBytes[0] == 0xEF && ImportBytes[1] == 0xBB && ImportBytes[2] == 0xBF ? 3 : 0,
+                    ImportBytes.Length >= 3 && ImportBytes[0] == 0xEF && ImportBytes[1] == 0xBB && ImportBytes[2] == 0xBF
+                        ? ImportBytes.Length - 3
+                        : ImportBytes.Length);
+                RequestedImportText = ImportText;
+                RequestedDeclarations = new List<SclDeclaration>(declarations);
+                Declarations = new List<SclDeclaration>(RequestedDeclarations);
             }
 
             public TiaSourceFile Source { get; private set; }
@@ -5198,7 +7295,31 @@ namespace TiaSclStudio.Openness.Legacy.V17
 
             public byte[] ImportBytes { get; private set; }
 
+            public string ImportText { get; private set; }
+
+            public string RequestedImportText { get; private set; }
+
+            public IList<SclDeclaration> RequestedDeclarations { get; private set; }
+
             public IList<SclDeclaration> Declarations { get; private set; }
+
+            public bool ShouldImport
+            {
+                get { return Declarations.Count > 0; }
+            }
+
+            public void ExcludeDeclarations(IEnumerable<SclDeclaration> declarations)
+            {
+                var excluded = (declarations ?? new SclDeclaration[0]).ToList();
+                if (excluded.Count == 0)
+                {
+                    return;
+                }
+
+                ImportText = SclSourceInspector.RemoveDeclarations(ImportText, excluded);
+                ImportBytes = EncodeUtf8Bom(ImportText);
+                Declarations = new List<SclDeclaration>(SclSourceInspector.FindDeclarations(ImportText));
+            }
         }
 
         private sealed class StagedSourceFile
@@ -5224,12 +7345,14 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 TiaPlcTag definition,
                 TagAction action,
                 PlcTagTable existingTable,
-                PlcTag existingTag)
+                PlcTag existingTag,
+                bool updateComment)
             {
                 Definition = definition;
                 Action = action;
                 ExistingTable = existingTable;
                 ExistingTag = existingTag;
+                UpdateComment = updateComment;
             }
 
             public TiaPlcTag Definition { get; private set; }
@@ -5239,6 +7362,8 @@ namespace TiaSclStudio.Openness.Legacy.V17
             public PlcTagTable ExistingTable { get; private set; }
 
             public PlcTag ExistingTag { get; private set; }
+
+            public bool UpdateComment { get; private set; }
         }
 
         private sealed class TagLocation
@@ -5278,10 +7403,6 @@ namespace TiaSclStudio.Openness.Legacy.V17
             }
 
             public TiaExportRequest Request { get; private set; }
-
-            public Project Project { get; set; }
-
-            public PlcSoftware Software { get; set; }
 
             public string EffectiveProjectPath { get; set; }
 
@@ -5340,6 +7461,11 @@ namespace TiaSclStudio.Openness.Legacy.V17
             public void SetRequestFingerprint(string fingerprint)
             {
                 RequestFingerprint = fingerprint ?? string.Empty;
+            }
+
+            public void ReleaseEngineeringReferences()
+            {
+                TagPlans.Clear();
             }
 
             public void FinalizeFingerprints()

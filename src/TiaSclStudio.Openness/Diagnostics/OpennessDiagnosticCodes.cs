@@ -59,7 +59,9 @@ namespace TiaSclStudio.Openness.Diagnostics
         public const string TagConflict = "TIA_TAG_CONFLICT";
         public const string BlockConflict = "TIA_BLOCK_CONFLICT";
         public const string DataTypeConflict = "TIA_DATA_TYPE_CONFLICT";
+        public const string DataTypeEquivalentNoOp = "TIA_DATA_TYPE_EQUIVALENT_NOOP";
         public const string UnsavedProjectChanges = "TIA_UNSAVED_PROJECT_CHANGES";
+        public const string InteractiveSaveConcurrency = "TIA_INTERACTIVE_SAVE_CONCURRENCY";
         public const string SaveRequiredHeadless = "TIA_SAVE_REQUIRED_HEADLESS";
         public const string UnsavedChangesRequireManualSave = "TIA_UNSAVED_CHANGES_REQUIRE_MANUAL_SAVE";
         public const string ConnectionReleaseBlocked = "TIA_CONNECTION_RELEASE_BLOCKED";
@@ -77,6 +79,10 @@ namespace TiaSclStudio.Openness.Diagnostics
         public const string ProjectSaveFailed = "TIA_PROJECT_SAVE_FAILED";
         public const string ProjectSaved = "TIA_PROJECT_SAVED";
         public const string SaveSkippedCompileErrors = "TIA_SAVE_SKIPPED_COMPILE_ERRORS";
+        public const string ReopenVerificationUnavailable = "TIA_REOPEN_VERIFICATION_UNAVAILABLE";
+        public const string ProjectReopenFailed = "TIA_PROJECT_REOPEN_FAILED";
+        public const string ExportReadbackFailed = "TIA_EXPORT_READBACK_FAILED";
+        public const string ExportReadbackSucceeded = "TIA_EXPORT_READBACK_SUCCEEDED";
         public const string ExportSucceeded = "TIA_EXPORT_SUCCEEDED";
         public const string ExportFailed = "TIA_EXPORT_FAILED";
     }

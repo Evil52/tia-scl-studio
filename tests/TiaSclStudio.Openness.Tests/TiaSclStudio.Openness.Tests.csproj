@@ -43,6 +43,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="LegacyExportReadbackPolicyTests.cs" />
     <Compile Include="OfflineGatewayTests.cs" />
     <Compile Include="LegacyLibraryReadbackPolicyTests.cs" />
     <Compile Include="OpennessInstallationLocatorTests.cs" />

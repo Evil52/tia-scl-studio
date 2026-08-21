@@ -6,6 +6,8 @@ using System.Windows.Controls;
 using TiaSclStudio.App;
 using TiaSclStudio.Core.Model;
 using TiaSclStudio.Diagram.Model;
+using TiaSclStudio.Openness.Diagnostics;
+using TiaSclStudio.Openness.Gateway;
 using Xunit;
 
 namespace TiaSclStudio.EndToEnd.Tests
@@ -63,6 +65,248 @@ namespace TiaSclStudio.EndToEnd.Tests
                 Assert.NotNull(sheet);
                 Assert.NotEmpty(sheet.Nodes);
                 Assert.NotEmpty(project.Plant.Blocks);
+            });
+        }
+
+        [Fact]
+        public void ReopenReadbackVerificationRequiresSaveAndAConnectedTarget()
+        {
+            OnWindow(window =>
+            {
+                var verification = MainWindowProbe.Element<CheckBox>(
+                    window,
+                    "VerifySavedExportAfterReopenCheckBox");
+                var save = MainWindowProbe.Element<CheckBox>(
+                    window,
+                    "SaveTiaProjectCheckBox");
+                var connectionMode = MainWindowProbe.Element<ComboBox>(
+                    window,
+                    "TiaConnectionModeComboBox");
+
+                Assert.False(verification.IsChecked == true);
+                Assert.False(verification.IsEnabled);
+                Assert.Contains("открыть заново", verification.Content.ToString());
+
+                connectionMode.SelectedIndex = 2;
+                MainWindowProbe.SetField(
+                    window,
+                    "_connectedTargetFingerprint",
+                    (string)MainWindowProbe.Call(window, "BuildConnectionFingerprint"));
+                MainWindowProbe.SetField(
+                    window,
+                    "_connectedTiaMode",
+                    (TiaConnectionMode?)TiaConnectionMode.StartWithoutUserInterface);
+                MainWindowProbe.Call(
+                    window,
+                    "ApplyGatewayStatus",
+                    new TiaGatewayStatus(
+                        TiaGatewayMode.LegacyAdapter,
+                        true,
+                        true,
+                        "Connected",
+                        null,
+                        null));
+
+                Assert.False(verification.IsEnabled);
+
+                save.IsChecked = true;
+                Assert.True(verification.IsEnabled);
+
+                verification.IsChecked = true;
+                connectionMode.SelectedIndex = 0;
+                Assert.False(verification.IsChecked == true);
+                Assert.False(verification.IsEnabled);
+
+                connectionMode.SelectedIndex = 2;
+                MainWindowProbe.SetField(
+                    window,
+                    "_connectedTargetFingerprint",
+                    (string)MainWindowProbe.Call(window, "BuildConnectionFingerprint"));
+                MainWindowProbe.Call(window, "UpdateOnlineCommandState");
+                verification.IsChecked = true;
+                save.IsChecked = false;
+                Assert.False(verification.IsChecked == true);
+                Assert.False(verification.IsEnabled);
+
+                save.IsChecked = true;
+                verification.IsChecked = true;
+                connectionMode.SelectedIndex = 1;
+                Assert.False(verification.IsChecked == true);
+                Assert.False(verification.IsEnabled);
+            });
+        }
+
+        [Fact]
+        public void ReopenReadbackVerificationIsUnavailableForAttachToRunning()
+        {
+            OnWindow(window =>
+            {
+                var verification = MainWindowProbe.Element<CheckBox>(
+                    window,
+                    "VerifySavedExportAfterReopenCheckBox");
+                var save = MainWindowProbe.Element<CheckBox>(
+                    window,
+                    "SaveTiaProjectCheckBox");
+
+                MainWindowProbe.SetField(
+                    window,
+                    "_connectedTargetFingerprint",
+                    (string)MainWindowProbe.Call(window, "BuildConnectionFingerprint"));
+                MainWindowProbe.SetField(
+                    window,
+                    "_connectedTiaMode",
+                    (TiaConnectionMode?)TiaConnectionMode.AttachToRunning);
+                MainWindowProbe.Call(
+                    window,
+                    "ApplyGatewayStatus",
+                    new TiaGatewayStatus(
+                        TiaGatewayMode.LegacyAdapter,
+                        true,
+                        true,
+                        "Connected",
+                        null,
+                        null));
+
+                save.IsChecked = true;
+
+                Assert.False(verification.IsEnabled);
+                Assert.False(verification.IsChecked == true);
+            });
+        }
+
+        [Fact]
+        public void BlockedReconnectIsRecognizedAsTheRetainedCurrentTargetOnlyWhenExportIsSafe()
+        {
+            var diagnostic = new OpennessDiagnostic(
+                OpennessDiagnosticCodes.ConnectionReleaseBlocked,
+                DiagnosticSeverity.Error,
+                "Reconnect was blocked to preserve the current session.");
+
+            Assert.True(MainWindow.IsBlockedReconnectRetainingCurrentSession(
+                new TiaGatewayStatus(
+                    TiaGatewayMode.LegacyAdapter,
+                    true,
+                    true,
+                    "Retained current session",
+                    null,
+                    new[] { diagnostic })));
+            Assert.False(MainWindow.IsBlockedReconnectRetainingCurrentSession(
+                new TiaGatewayStatus(
+                    TiaGatewayMode.LegacyAdapter,
+                    true,
+                    false,
+                    "Quarantined session",
+                    null,
+                    new[] { diagnostic })));
+            Assert.False(MainWindow.IsBlockedReconnectRetainingCurrentSession(
+                new TiaGatewayStatus(
+                    TiaGatewayMode.LegacyAdapter,
+                    true,
+                    true,
+                    "Ordinary connection failure",
+                    null,
+                    new[]
+                    {
+                        new OpennessDiagnostic(
+                            OpennessDiagnosticCodes.ConnectionFailed,
+                            DiagnosticSeverity.Error,
+                            "Failed.")
+                    })));
+        }
+
+        [Fact]
+        public void FailedReadbackAfterSuccessfulSaveDoesNotReportHeadlessUnsavedChanges()
+        {
+            OnWindow(window =>
+            {
+                MainWindowProbe.SetField(
+                    window,
+                    "_connectedTiaMode",
+                    (TiaConnectionMode?)TiaConnectionMode.StartWithoutUserInterface);
+                MainWindowProbe.SetField(window, "_headlessUnsavedChangesRisk", true);
+
+                var request = new TiaExportRequest(
+                    "project.ap20",
+                    new TiaSourceFile[0],
+                    false,
+                    null,
+                    null,
+                    null,
+                    false,
+                    "TIASCL",
+                    false,
+                    true,
+                    true);
+                var result = new TiaExportResult(
+                    TiaExportOutcome.Failed,
+                    1,
+                    false,
+                    new[]
+                    {
+                        new OpennessDiagnostic(
+                            OpennessDiagnosticCodes.ProjectSaved,
+                            DiagnosticSeverity.Information,
+                            "Saved before readback."),
+                        new OpennessDiagnostic(
+                            OpennessDiagnosticCodes.ExportReadbackFailed,
+                            DiagnosticSeverity.Error,
+                            "Readback mismatch.")
+                    },
+                    true,
+                    false);
+
+                MainWindowProbe.Call(
+                    window,
+                    "UpdateHeadlessUnsavedChangesRisk",
+                    request,
+                    result);
+
+                Assert.False(MainWindowProbe.Field<bool>(
+                    window,
+                    "_headlessUnsavedChangesRisk"));
+            });
+        }
+
+        [Fact]
+        public void AmbiguousTransactionFinalizationReportsHeadlessUnsavedChanges()
+        {
+            OnWindow(window =>
+            {
+                MainWindowProbe.SetField(
+                    window,
+                    "_connectedTiaMode",
+                    (TiaConnectionMode?)TiaConnectionMode.StartWithoutUserInterface);
+
+                var request = new TiaExportRequest(
+                    "project.ap20",
+                    new TiaSourceFile[0],
+                    false);
+                var result = new TiaExportResult(
+                    TiaExportOutcome.Failed,
+                    0,
+                    false,
+                    new[]
+                    {
+                        new OpennessDiagnostic(
+                            OpennessDiagnosticCodes.UnsavedChangesRequireManualSave,
+                            DiagnosticSeverity.Warning,
+                            "Commit state is ambiguous.")
+                    });
+
+                MainWindowProbe.Call(
+                    window,
+                    "UpdateHeadlessUnsavedChangesRisk",
+                    request,
+                    result);
+
+                Assert.True(MainWindowProbe.Field<bool>(
+                    window,
+                    "_headlessUnsavedChangesRisk"));
+
+                // The assertion intentionally enables the real close guard.
+                // Clear it before the shared host closes the window so the test
+                // never opens a modal confirmation dialog on the STA thread.
+                MainWindowProbe.SetField(window, "_headlessUnsavedChangesRisk", false);
             });
         }
 

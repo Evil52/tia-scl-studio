@@ -174,7 +174,28 @@ namespace TiaSclStudio.Openness.Tests
             Assert.False(request.AllowTagUpdates);
             Assert.False(request.AllowOwnedBlockOverwrite);
             Assert.False(request.SaveProjectAfterExport);
+            Assert.False(request.VerifySavedExportAfterReopen);
             Assert.Equal(TiaExportRequest.DefaultOwnershipMarker, request.OwnershipMarker);
+        }
+
+        [Fact]
+        public void ReopenReadbackVerificationIsExplicitlyOptIn()
+        {
+            var request = new TiaExportRequest(
+                "p",
+                new TiaSourceFile[0],
+                true,
+                null,
+                null,
+                null,
+                false,
+                "MINE",
+                true,
+                true,
+                true);
+
+            Assert.True(request.SaveProjectAfterExport);
+            Assert.True(request.VerifySavedExportAfterReopen);
         }
 
         [Fact]
@@ -294,6 +315,46 @@ namespace TiaSclStudio.Openness.Tests
         {
             Assert.Throws<ArgumentOutOfRangeException>(
                 () => new TiaExportResult(TiaExportOutcome.Succeeded, -1, false, null));
+        }
+
+        [Fact]
+        public void AnExportResultDefaultsToNoReadback()
+        {
+            var result = new TiaExportResult(
+                TiaExportOutcome.Succeeded,
+                1,
+                true,
+                null);
+
+            Assert.False(result.ReadbackAttempted);
+            Assert.False(result.ReadbackSucceeded);
+        }
+
+        [Fact]
+        public void AnExportResultRecordsSuccessfulReadback()
+        {
+            var result = new TiaExportResult(
+                TiaExportOutcome.Succeeded,
+                1,
+                true,
+                null,
+                true,
+                true);
+
+            Assert.True(result.ReadbackAttempted);
+            Assert.True(result.ReadbackSucceeded);
+        }
+
+        [Fact]
+        public void AnExportResultCannotReportSuccessWithoutAttemptingReadback()
+        {
+            Assert.Throws<ArgumentException>(() => new TiaExportResult(
+                TiaExportOutcome.Succeeded,
+                1,
+                true,
+                null,
+                false,
+                true));
         }
     }
 }

@@ -153,6 +153,18 @@ namespace TiaSclStudio.App
                 return;
             }
 
+            var saveWasDisabled =
+                ReferenceEquals(sender, SaveTiaProjectCheckBox) &&
+                SaveTiaProjectCheckBox.IsChecked != true;
+            var unsupportedVerificationModeWasSelected =
+                ReferenceEquals(sender, TiaConnectionModeComboBox) &&
+                GetSelectedConnectionMode() != TiaConnectionMode.StartWithoutUserInterface;
+            if ((saveWasDisabled || unsupportedVerificationModeWasSelected) &&
+                VerifySavedExportAfterReopenCheckBox.IsChecked == true)
+            {
+                VerifySavedExportAfterReopenCheckBox.IsChecked = false;
+            }
+
             InvalidateOnlinePreview();
             _tiaHardwareIoCatalog = null;
             if (_tiaGatewayStatus != null &&
@@ -188,7 +200,25 @@ namespace TiaSclStudio.App
                 return;
             }
 
+            var switchingApiInstallation = _selectedInstallation != null &&
+                !string.Equals(
+                    _selectedInstallation.AssemblyPath,
+                    installation.AssemblyPath,
+                    StringComparison.OrdinalIgnoreCase);
+            if (switchingApiInstallation &&
+                _tiaGatewayStatus != null &&
+                _tiaGatewayStatus.IsConnected)
+            {
+                ShowOnlineInputError(
+                    "014",
+                    "Нельзя менять установленную версию TIA/API, пока активна текущая Openness-сессия. " +
+                    "Сохраните проект и перезапустите TIA SCL Studio, затем выберите другую версию.");
+                return;
+            }
+
             InvalidateOnlinePreview();
+            var previousConnectedTargetFingerprint = _connectedTargetFingerprint;
+            var previousHardwareIoCatalog = _tiaHardwareIoCatalog;
             SetOnlineBusy(
                 true,
                 "Подключение к Portal V" + installation.PortalVersion.Major +
@@ -220,7 +250,9 @@ namespace TiaSclStudio.App
                     {
                         var connectedStatus = gateway.Connect(request);
                         TiaHardwareIoCatalog hardwareIoCatalog = null;
-                        if (connectedStatus != null && connectedStatus.IsConnected)
+                        if (connectedStatus != null &&
+                            connectedStatus.IsConnected &&
+                            !IsBlockedReconnectRetainingCurrentSession(connectedStatus))
                         {
                             hardwareIoCatalog = gateway.ReadHardwareIoCatalog(CancellationToken.None);
                             connectedStatus = gateway.GetStatus();
@@ -258,13 +290,25 @@ namespace TiaSclStudio.App
                 }
 
                 var status = response.Status;
+                var retainedCurrentSession =
+                    IsBlockedReconnectRetainingCurrentSession(status);
                 _tiaGatewayStatus = status;
-                _tiaHardwareIoCatalog = status != null && status.IsConnected
-                    ? response.HardwareIoCatalog
-                    : null;
-                _connectedTargetFingerprint = status != null && status.IsConnected
-                    ? BuildConnectionFingerprint()
-                    : string.Empty;
+                if (retainedCurrentSession)
+                {
+                    _connectedTargetFingerprint = previousConnectedTargetFingerprint;
+                    _tiaHardwareIoCatalog = IsConnectedToCurrentTarget()
+                        ? previousHardwareIoCatalog
+                        : null;
+                }
+                else
+                {
+                    _tiaHardwareIoCatalog = status != null && status.IsConnected
+                        ? response.HardwareIoCatalog
+                        : null;
+                    _connectedTargetFingerprint = status != null && status.IsConnected
+                        ? BuildConnectionFingerprint()
+                        : string.Empty;
+                }
                 if (status != null &&
                     status.IsConnected &&
                     !status.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error))
@@ -463,7 +507,10 @@ namespace TiaSclStudio.App
                     SetStatus(
                         "Выгрузка завершена: импортировано источников " +
                         response.Result.ImportedSourceCount +
-                        (response.Result.CompilationAttempted ? ", компиляция запущена" : string.Empty));
+                        (response.Result.CompilationAttempted ? ", компиляция запущена" : string.Empty) +
+                        (response.Result.ReadbackAttempted && response.Result.ReadbackSucceeded
+                            ? ", повторное открытие и проверка успешны"
+                            : string.Empty));
                 }
                 else
                 {
@@ -510,8 +557,13 @@ namespace TiaSclStudio.App
                 return;
             }
 
+            var projectWasSaved = result.Diagnostics.Any(item =>
+                string.Equals(
+                    item.Code,
+                    OpennessDiagnosticCodes.ProjectSaved,
+                    StringComparison.Ordinal));
             if (request.SaveProjectAfterExport &&
-                result.Outcome == TiaExportOutcome.Succeeded)
+                (result.Outcome == TiaExportOutcome.Succeeded || projectWasSaved))
             {
                 _headlessUnsavedChangesRisk = false;
                 return;
@@ -526,9 +578,15 @@ namespace TiaSclStudio.App
                     item.Code,
                     OpennessDiagnosticCodes.ProjectSaveFailed,
                     StringComparison.Ordinal));
+            var ambiguousUnsavedDiagnostic = result.Diagnostics.Any(item =>
+                string.Equals(
+                    item.Code,
+                    OpennessDiagnosticCodes.UnsavedChangesRequireManualSave,
+                    StringComparison.Ordinal));
 
-            if (result.ImportedSourceCount > 0 &&
-                (result.Outcome != TiaExportOutcome.Succeeded || saveFailureDiagnostic))
+            if (ambiguousUnsavedDiagnostic ||
+                (result.ImportedSourceCount > 0 &&
+                 (result.Outcome != TiaExportOutcome.Succeeded || saveFailureDiagnostic)))
             {
                 _headlessUnsavedChangesRisk = true;
             }
@@ -699,7 +757,8 @@ namespace TiaSclStudio.App
                 AllowTagUpdatesCheckBox.IsChecked == true,
                 "TS" + GetProjectIdPrefix(6),
                 AllowOwnedOverwriteCheckBox.IsChecked == true,
-                SaveTiaProjectCheckBox.IsChecked == true);
+                SaveTiaProjectCheckBox.IsChecked == true,
+                VerifySavedExportAfterReopenCheckBox.IsChecked == true);
             return true;
         }
 
@@ -780,7 +839,12 @@ namespace TiaSclStudio.App
                 "PLC Software: " + EmptyAsAuto(_previewedExportRequest.TargetSoftwareName) + "\n" +
                 "Операций по подтверждённому плану: " + _tiaExportPreview.Operations.Count + "\n" +
                 "Компиляция: " + YesNo(_previewedExportRequest.CompileAfterImport) + "\n" +
-                "Сохранение проекта TIA: " + YesNo(_previewedExportRequest.SaveProjectAfterExport) + "\n\n" +
+                "Сохранение проекта TIA: " + YesNo(_previewedExportRequest.SaveProjectAfterExport) + "\n" +
+                "Повторное открытие и проверка: " + YesNo(_previewedExportRequest.VerifySavedExportAfterReopen) + "\n" +
+                (_previewedExportRequest.VerifySavedExportAfterReopen
+                    ? "Для проверки сохранённый проект будет закрыт и снова открыт.\n"
+                    : string.Empty) +
+                "\n" +
                 "OB1 не изменяется. Продолжить?";
         }
 
@@ -972,6 +1036,14 @@ namespace TiaSclStudio.App
                 _tiaGatewayStatus.IsConnected &&
                 _tiaGatewayStatus.CanExport &&
                 IsConnectedToCurrentTarget();
+            VerifySavedExportAfterReopenCheckBox.IsEnabled =
+                !_onlineBusy &&
+                _tiaGatewayStatus != null &&
+                _tiaGatewayStatus.IsConnected &&
+                IsConnectedToCurrentTarget() &&
+                _connectedTiaMode.HasValue &&
+                _connectedTiaMode.Value == TiaConnectionMode.StartWithoutUserInterface &&
+                SaveTiaProjectCheckBox.IsChecked == true;
             ReadTiaLibraryButton.IsEnabled = TiaLibraryImportUiLogic.CanReadLibrary(
                 _tiaGatewayStatus,
                 IsConnectedToCurrentTarget(),
@@ -1130,6 +1202,18 @@ namespace TiaSclStudio.App
                     _connectedTargetFingerprint,
                     BuildConnectionFingerprint(),
                     StringComparison.Ordinal);
+        }
+
+        internal static bool IsBlockedReconnectRetainingCurrentSession(
+            TiaGatewayStatus status)
+        {
+            return status != null &&
+                status.IsConnected &&
+                status.CanExport &&
+                status.Diagnostics.Any(item => string.Equals(
+                    item.Code,
+                    OpennessDiagnosticCodes.ConnectionReleaseBlocked,
+                    StringComparison.Ordinal));
         }
 
         private string BuildConnectionFingerprint()

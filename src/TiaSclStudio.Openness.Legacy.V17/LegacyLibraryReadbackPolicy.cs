@@ -17,6 +17,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
     {
         internal const int MaximumObjectCount = 4096;
         internal const long MaximumSourceBytesPerObject = 8L * 1024L * 1024L;
+        internal const long MaximumStagedExportBytes = 64L * 1024L * 1024L;
         internal const long MaximumTotalSourceBytes = 64L * 1024L * 1024L;
         internal const int MaximumTagTableCount = 4096;
         internal const int MaximumTagGroupCount = 16384;
@@ -26,6 +27,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
         internal const long MaximumTagCatalogCharacters = 32L * 1024L * 1024L;
         internal const long MaximumTagTopologyCharacters = 8L * 1024L * 1024L;
         internal const int MaximumSoftwareUnitCount = 4096;
+        internal const long MaximumTargetedComLookupCount = 65536;
         internal const int MaximumTagDiagnosticCount = 256;
         internal const int MaximumDiagnosticTextCharacters = 4096;
         internal const int MaximumHardwareTreeDepth = 128;
@@ -196,6 +198,31 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     yield return entry;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Bounds requested-only Siemens composition lookups. Individual catalog and
+    /// request limits are not sufficient because their product can otherwise
+    /// produce hundreds of millions of remote Find calls on a nested project.
+    /// </summary>
+    internal sealed class LegacyTargetedComLookupBudget
+    {
+        private long consumed;
+
+        internal long Consumed => consumed;
+
+        internal void Consume(string operation)
+        {
+            if (consumed >= LegacyLibraryReadbackPolicy.MaximumTargetedComLookupCount)
+            {
+                throw new InvalidOperationException(
+                    "The requested-only TIA lookup budget was exhausted before " +
+                    (string.IsNullOrWhiteSpace(operation) ? "a composition lookup" : operation) +
+                    ". Reduce the request size or simplify the PLC group topology.");
+            }
+
+            consumed++;
         }
     }
 

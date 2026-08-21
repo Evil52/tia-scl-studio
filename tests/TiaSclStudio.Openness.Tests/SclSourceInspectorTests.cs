@@ -18,7 +18,7 @@ namespace TiaSclStudio.Openness.Tests
         private static string Block(string name, string extraHeader = "")
         {
             return
-                "FUNCTION_BLOCK \"" + name + "\"\r\n" +
+                "FUNCTION_BLOCK \"" + name.Replace("\"", "\"\"") + "\"\r\n" +
                 "{ S7_Optimized_Access := 'TRUE' }\r\n" +
                 "VERSION : 0.1\r\n" +
                 extraHeader +
@@ -379,6 +379,488 @@ namespace TiaSclStudio.Openness.Tests
 
             Assert.Contains("// Клапан подачи", stamped, StringComparison.Ordinal);
             Assert.Contains("FAMILY : 'TIASCL'", stamped, StringComparison.Ordinal);
+        }
+
+        // ---------------------------------------------------------------
+        // Complete declaration selection
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void ExtractsExactlyOneRequestedDeclarationFromAMixedSource()
+        {
+            var source = Type("UDT_A") + Block("FB_A") + Function("FC_A") + DataBlock("DB_A");
+
+            var extracted = SclSourceInspector.GetSingleDeclarationSource(
+                source,
+                SclDeclarationKind.Function,
+                "FC_A");
+
+            Assert.Equal(new[] { "FC_A" },
+                SclSourceInspector.FindDeclarations(extracted).Select(item => item.Name).ToArray());
+            Assert.StartsWith("FUNCTION \"FC_A\" : Void", extracted, StringComparison.Ordinal);
+            Assert.EndsWith("END_FUNCTION\r\n", extracted, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ExtractionUsesKindAsWellAsName()
+        {
+            var source = Block("Shared") + Function("Shared");
+
+            var extracted = SclSourceInspector.GetSingleDeclarationSource(
+                source,
+                SclDeclarationKind.FunctionBlock,
+                "Shared");
+
+            Assert.StartsWith("FUNCTION_BLOCK", extracted, StringComparison.Ordinal);
+            Assert.DoesNotContain("END_FUNCTION\r\n", extracted, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ExtractionPreservesEscapedQuotedNamesAndTheOriginalBytes()
+        {
+            var expected = Block("FB_\"Quoted");
+            var source = "// source prologue\r\n" + expected + Block("FB_B");
+
+            var extracted = SclSourceInspector.GetSingleDeclarationSource(
+                source,
+                SclDeclarationKind.FunctionBlock,
+                "FB_\"Quoted");
+
+            Assert.Equal(expected, extracted);
+        }
+
+        [Fact]
+        public void ExtractionRefusesAMissingKindNamePair()
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+                SclSourceInspector.GetSingleDeclarationSource(
+                    Block("FB_A"),
+                    SclDeclarationKind.FunctionBlock,
+                    "Missing"));
+            Assert.Throws<InvalidOperationException>(() =>
+                SclSourceInspector.GetSingleDeclarationSource(
+                    Block("FB_A"),
+                    SclDeclarationKind.Function,
+                    "FB_A"));
+        }
+
+        [Fact]
+        public void ExtractionRefusesADuplicateKindNamePair()
+        {
+            var source = Block("FB_A") + Block("FB_A");
+
+            Assert.Throws<InvalidOperationException>(() =>
+                SclSourceInspector.GetSingleDeclarationSource(
+                    source,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"));
+        }
+
+        [Fact]
+        public void ExtractionRefusesAnUnclosedDeclarationEvenWhenAnotherOneFollows()
+        {
+            var source =
+                "FUNCTION_BLOCK \"Broken\"\r\nVERSION : 0.1\r\nBEGIN\r\n" +
+                Block("FB_Good");
+
+            Assert.Throws<InvalidOperationException>(() =>
+                SclSourceInspector.GetSingleDeclarationSource(
+                    source,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_Good"));
+        }
+
+        [Fact]
+        public void ExtractionRefusesAStraySecondClosingKeyword()
+        {
+            var source = Block("FB_A") + "END_FUNCTION_BLOCK\r\n";
+
+            Assert.Throws<InvalidOperationException>(() =>
+                SclSourceInspector.GetSingleDeclarationSource(
+                    source,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"));
+        }
+
+        [Fact]
+        public void ClosingKeywordsInsideCommentsDoNotEndADeclaration()
+        {
+            var source =
+                "FUNCTION_BLOCK \"FB_A\"\r\n" +
+                "VERSION : 0.1\r\n" +
+                "BEGIN\r\n" +
+                "   // END_FUNCTION_BLOCK\r\n" +
+                "   (* END_FUNCTION_BLOCK *)\r\n" +
+                "END_FUNCTION_BLOCK\r\n";
+
+            var extracted = SclSourceInspector.GetSingleDeclarationSource(
+                source,
+                SclDeclarationKind.FunctionBlock,
+                "FB_A");
+
+            Assert.Equal(source, extracted);
+        }
+
+        [Fact]
+        public void KeepsSeveralSelectedDeclarationsInOriginalOrder()
+        {
+            var source =
+                "// discarded prologue\r\n" +
+                Block("FB_A") +
+                "// discarded separator\r\n" +
+                Function("FC_B") +
+                DataBlock("DB_C");
+
+            var kept = SclSourceInspector.KeepDeclarations(
+                source,
+                new[]
+                {
+                    new SclDeclaration(SclDeclarationKind.DataBlock, "DB_C"),
+                    new SclDeclaration(SclDeclarationKind.FunctionBlock, "FB_A")
+                });
+
+            Assert.Equal(
+                new[] { "FB_A", "DB_C" },
+                SclSourceInspector.FindDeclarations(kept).Select(item => item.Name).ToArray());
+            Assert.DoesNotContain("discarded", kept, StringComparison.Ordinal);
+            Assert.DoesNotContain("FC_B", kept, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void RemovesSeveralSelectedDeclarationsAndLeavesCompleteNeighbours()
+        {
+            var source = Type("UDT_A") + Block("FB_A") + Function("FC_A") + DataBlock("DB_A");
+
+            var remaining = SclSourceInspector.RemoveDeclarations(
+                source,
+                new[]
+                {
+                    new SclDeclaration(SclDeclarationKind.FunctionBlock, "FB_A"),
+                    new SclDeclaration(SclDeclarationKind.DataBlock, "DB_A")
+                });
+
+            Assert.Equal(
+                new[] { "UDT_A", "FC_A" },
+                SclSourceInspector.FindDeclarations(remaining).Select(item => item.Name).ToArray());
+            Assert.Equal(Type("UDT_A") + Function("FC_A"), remaining);
+        }
+
+        [Fact]
+        public void RemovingEveryDeclarationReturnsAnEmptyParsableSource()
+        {
+            var source = Block("FB_A") + Function("FC_A");
+
+            var remaining = SclSourceInspector.RemoveDeclarations(
+                source,
+                SclSourceInspector.FindDeclarations(source));
+
+            Assert.Equal(string.Empty, remaining);
+            Assert.Empty(SclSourceInspector.FindDeclarations(remaining));
+        }
+
+        [Fact]
+        public void KeepingNoDeclarationsReturnsAnEmptySource()
+        {
+            Assert.Equal(
+                string.Empty,
+                SclSourceInspector.KeepDeclarations(Block("FB_A"), new SclDeclaration[0]));
+        }
+
+        [Fact]
+        public void SelectionRefusesDuplicatesMissingEntriesAndNullEntries()
+        {
+            var duplicate = new SclDeclaration(SclDeclarationKind.FunctionBlock, "FB_A");
+
+            Assert.Throws<ArgumentException>(() => SclSourceInspector.KeepDeclarations(
+                Block("FB_A"),
+                new[] { duplicate, duplicate }));
+            Assert.Throws<InvalidOperationException>(() => SclSourceInspector.RemoveDeclarations(
+                Block("FB_A"),
+                new[] { new SclDeclaration(SclDeclarationKind.FunctionBlock, "Missing") }));
+            Assert.Throws<ArgumentException>(() => SclSourceInspector.KeepDeclarations(
+                Block("FB_A"),
+                new SclDeclaration[] { null }));
+        }
+
+        [Fact]
+        public void SelectionValidatesUnselectedDeclarationsToo()
+        {
+            var source =
+                Block("FB_Good") +
+                "FUNCTION \"Broken\" : Void\r\nVERSION : 0.1\r\nBEGIN\r\n";
+
+            Assert.Throws<InvalidOperationException>(() => SclSourceInspector.KeepDeclarations(
+                source,
+                new[] { new SclDeclaration(SclDeclarationKind.FunctionBlock, "FB_Good") }));
+        }
+
+        // ---------------------------------------------------------------
+        // Functional canonicalization
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void CanonicalizationIgnoresBomWhitespaceLineEndingsAndComments()
+        {
+            const string compact = "FUNCTION \"FC_A\":Int\nBEGIN\n#FC_A:=1+2;\nEND_FUNCTION\n";
+            const string decorated =
+                "\uFEFF  FUNCTION   \"FC_A\" : Int\r\n" +
+                "// body starts here\r\n" +
+                "BEGIN\r\n" +
+                "   #FC_A  :=  1 (* plus two *) + 2 ;\r\n" +
+                "END_FUNCTION\r\n";
+
+            Assert.Equal(
+                SclSourceInspector.Canonicalize(compact),
+                SclSourceInspector.Canonicalize(decorated));
+        }
+
+        [Fact]
+        public void CanonicalizationPreservesStringAndQuotedIdentifierContents()
+        {
+            var canonical = SclSourceInspector.Canonicalize(
+                "\"Quoted identifier\" := 'text // not a comment (* either *)';");
+
+            Assert.Contains("\"Quoted identifier\"", canonical, StringComparison.Ordinal);
+            Assert.Contains("'text // not a comment (* either *)'", canonical, StringComparison.Ordinal);
+            Assert.NotEqual(
+                canonical,
+                SclSourceInspector.Canonicalize(
+                    "\"Quoted  identifier\" := 'text // not a comment (* either *)';"));
+            Assert.NotEqual(
+                canonical,
+                SclSourceInspector.Canonicalize(
+                    "\"Quoted identifier\" := 'text  // not a comment (* either *)';"));
+        }
+
+        [Fact]
+        public void CanonicalizationPreservesEscapedQuotePairs()
+        {
+            var canonical = SclSourceInspector.Canonicalize(
+                "\"A\"\"B\" := 'It''s valid';");
+
+            Assert.Contains("\"A\"\"B\"", canonical, StringComparison.Ordinal);
+            Assert.Contains("'It''s valid'", canonical, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void CanonicalizationDoesNotMergeSeparateWords()
+        {
+            Assert.NotEqual(
+                SclSourceInspector.Canonicalize("NOT Enabled"),
+                SclSourceInspector.Canonicalize("NOTEnabled"));
+        }
+
+        [Fact]
+        public void CanonicalizationPreservesCompoundOperatorBoundaries()
+        {
+            Assert.NotEqual(
+                SclSourceInspector.Canonicalize("#Q := #Open;"),
+                SclSourceInspector.Canonicalize("#Q : = #Open;"));
+            Assert.NotEqual(
+                SclSourceInspector.Canonicalize("#Q => #Open;"),
+                SclSourceInspector.Canonicalize("#Q = > #Open;"));
+        }
+
+        [Theory]
+        [InlineData("(* unterminated")]
+        [InlineData("'unterminated")]
+        [InlineData("\"unterminated")]
+        public void CanonicalizationRefusesUnterminatedLexicalConstructs(string source)
+        {
+            Assert.Throws<InvalidOperationException>(() => SclSourceInspector.Canonicalize(source));
+        }
+
+        [Fact]
+        public void CanonicalizationRejectsNullButAcceptsEmptyText()
+        {
+            Assert.Throws<ArgumentNullException>(() => SclSourceInspector.Canonicalize(null));
+            Assert.Equal(string.Empty, SclSourceInspector.Canonicalize(string.Empty));
+        }
+
+        // ---------------------------------------------------------------
+        // Canonical block header and interface
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void HeaderComparisonIgnoresBodyChanges()
+        {
+            var first = BlockWithBody("FB_A", "   #Open := TRUE;\r\n");
+            var second = BlockWithBody("FB_A", "   #Open := FALSE;\r\n   #Counter := #Counter + 1;\r\n");
+
+            Assert.Equal(
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    first,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"),
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    second,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"));
+        }
+
+        [Fact]
+        public void HeaderComparisonDetectsInterfaceAndReturnTypeChanges()
+        {
+            var boolInput = Block("FB_A");
+            var intInput = Block("FB_A").Replace("Open : Bool", "Open : Int");
+            var voidFunction = Function("FC_A");
+            var intFunction = Function("FC_A").Replace(": Void", ": Int");
+
+            Assert.NotEqual(
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    boolInput,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"),
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    intInput,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"));
+            Assert.NotEqual(
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    voidFunction,
+                    SclDeclarationKind.Function,
+                    "FC_A"),
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    intFunction,
+                    SclDeclarationKind.Function,
+                    "FC_A"));
+        }
+
+        [Fact]
+        public void HeaderComparisonIgnoresOwnershipFamilyWhitespaceAndComments()
+        {
+            var withoutFamily = Block("FB_A");
+            var withFamily =
+                "// leading comment\r\n" +
+                Block("FB_A", "  FAMILY : 'A_DIFFERENT_OWNER' // adapter metadata\r\n")
+                    .Replace("Open : Bool;", "Open    :    Bool; // same interface");
+
+            Assert.Equal(
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    withoutFamily,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"),
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    withFamily,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"));
+        }
+
+        [Fact]
+        public void HeaderComparisonKeepsAFamilyNamedInterfaceMember()
+        {
+            var original = Block("FB_A").Replace("Open : Bool", "FAMILY : Bool");
+            var changed = Block("FB_A").Replace("Open : Bool", "FAMILY : Int");
+
+            Assert.NotEqual(
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    original,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"),
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    changed,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"));
+        }
+
+        [Fact]
+        public void HeaderComparisonSupportsDataBlocks()
+        {
+            var first = DataBlock("DB_A", "   Value := 1;\r\n");
+            var second = DataBlock("DB_A", "   Value := 2;\r\n");
+
+            Assert.Equal(
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    first,
+                    SclDeclarationKind.DataBlock,
+                    "DB_A"),
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    second,
+                    SclDeclarationKind.DataBlock,
+                    "DB_A"));
+        }
+
+        [Fact]
+        public void HeaderComparisonRefusesUnsupportedDeclarationKinds()
+        {
+            Assert.Throws<ArgumentException>(() =>
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    string.Empty,
+                    SclDeclarationKind.DataType,
+                    "UDT_A"));
+            Assert.Throws<ArgumentException>(() =>
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    string.Empty,
+                    SclDeclarationKind.OrganizationBlock,
+                    "OB_A"));
+        }
+
+        [Fact]
+        public void HeaderComparisonRefusesABlockWithoutBegin()
+        {
+            const string source =
+                "FUNCTION_BLOCK \"FB_A\"\r\n" +
+                "VERSION : 0.1\r\n" +
+                "END_FUNCTION_BLOCK\r\n";
+
+            Assert.Throws<InvalidOperationException>(() =>
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    source,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"));
+        }
+
+        [Fact]
+        public void HeaderComparisonRefusesTwoOwnershipFamilyHeaders()
+        {
+            var source = Block("FB_A", "FAMILY : 'ONE'\r\nFAMILY : 'TWO'\r\n");
+
+            Assert.Throws<InvalidOperationException>(() =>
+                SclSourceInspector.GetCanonicalHeaderAndInterface(
+                    source,
+                    SclDeclarationKind.FunctionBlock,
+                    "FB_A"));
+        }
+
+        private static string Type(string name)
+        {
+            return
+                "TYPE \"" + name + "\"\r\n" +
+                "VERSION : 0.1\r\n" +
+                "   STRUCT\r\n" +
+                "      Value : Bool;\r\n" +
+                "   END_STRUCT;\r\n" +
+                "END_TYPE\r\n";
+        }
+
+        private static string Function(string name)
+        {
+            return
+                "FUNCTION \"" + name + "\" : Void\r\n" +
+                "VERSION : 0.1\r\n" +
+                "VAR_INPUT\r\n" +
+                "   Enable : Bool;\r\n" +
+                "END_VAR\r\n" +
+                "BEGIN\r\n" +
+                "END_FUNCTION\r\n";
+        }
+
+        private static string DataBlock(string name, string body = "")
+        {
+            return
+                "DATA_BLOCK \"" + name + "\"\r\n" +
+                "VERSION : 0.1\r\n" +
+                "VAR\r\n" +
+                "   Value : Int;\r\n" +
+                "END_VAR\r\n" +
+                "BEGIN\r\n" +
+                body +
+                "END_DATA_BLOCK\r\n";
+        }
+
+        private static string BlockWithBody(string name, string body)
+        {
+            return Block(name).Replace("BEGIN\r\nEND_FUNCTION_BLOCK", "BEGIN\r\n" + body + "END_FUNCTION_BLOCK");
         }
 
         private static int Occurrences(string text, string fragment)

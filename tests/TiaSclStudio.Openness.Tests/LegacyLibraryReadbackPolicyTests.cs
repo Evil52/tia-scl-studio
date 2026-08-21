@@ -87,6 +87,29 @@ namespace TiaSclStudio.Openness.Tests
             Assert.Equal(8L * 1024L * 1024L, LegacyLibraryReadbackPolicy.MaximumSourceBytesPerObject);
             Assert.True(LegacyLibraryReadbackPolicy.MaximumTotalSourceBytes >=
                 LegacyLibraryReadbackPolicy.MaximumSourceBytesPerObject);
+            Assert.Equal(65536, LegacyLibraryReadbackPolicy.MaximumTargetedComLookupCount);
+        }
+
+        [Fact]
+        public void TargetedComLookupBudgetAllowsTheExactLimitAndRejectsTheNextCall()
+        {
+            var budget = new LegacyTargetedComLookupBudget();
+            for (long index = 0;
+                index < LegacyLibraryReadbackPolicy.MaximumTargetedComLookupCount;
+                index++)
+            {
+                budget.Consume("testing a bounded lookup");
+            }
+
+            Assert.Equal(
+                LegacyLibraryReadbackPolicy.MaximumTargetedComLookupCount,
+                budget.Consumed);
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                budget.Consume("testing a rejected lookup"));
+            Assert.Contains("lookup budget was exhausted", exception.Message);
+            Assert.Equal(
+                LegacyLibraryReadbackPolicy.MaximumTargetedComLookupCount,
+                budget.Consumed);
         }
 
         [Fact]
