@@ -47,14 +47,14 @@ jobs:
 
       - name: Publish test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: artifacts/test-results/
           retention-days: 14
 
       - name: Publish application
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # GitHub-hosted runners do not contain Siemens.Engineering.dll, so
           # this artifact deliberately contains the offline adapter stub.
