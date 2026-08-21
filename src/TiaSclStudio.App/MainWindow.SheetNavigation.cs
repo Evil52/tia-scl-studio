@@ -135,28 +135,59 @@ namespace TiaSclStudio.App
             }
 
             var editedSheet = _sheet;
-            var name = ShowSheetNameDialog(
-                "Переименование листа",
-                "Новое имя листа «" + editedSheet.Name + "»",
+            var dialog = new SheetPropertiesWindow(
                 editedSheet.Name,
-                editedSheet);
-            if (name == null || string.Equals(name, editedSheet.Name, StringComparison.Ordinal))
+                editedSheet.Width,
+                editedSheet.Height,
+                candidate =>
+                {
+                    string error;
+                    return SheetEditingLogic.TryValidateName(
+                        _project,
+                        editedSheet,
+                        candidate,
+                        out error)
+                            ? string.Empty
+                            : error;
+                })
+            {
+                Owner = this
+            };
+            if (dialog.ShowDialog() != true)
             {
                 return;
             }
 
             var oldName = editedSheet.Name;
+            var oldWidth = editedSheet.Width;
+            var oldHeight = editedSheet.Height;
+            if (string.Equals(dialog.ApprovedName, oldName, StringComparison.Ordinal) &&
+                Math.Abs(dialog.ApprovedWidth - oldWidth) < 0.000001 &&
+                Math.Abs(dialog.ApprovedHeight - oldHeight) < 0.000001)
+            {
+                return;
+            }
+
             if (!TryCommitSemanticEdit(
-                "Переименование листа " + oldName + " → " + name,
-                () => SheetEditingLogic.RenameSheet(_project, editedSheet, name)))
+                "Свойства листа " + oldName,
+                () => SheetEditingLogic.EditProperties(
+                    _project,
+                    editedSheet,
+                    dialog.ApprovedName,
+                    dialog.ApprovedWidth,
+                    dialog.ApprovedHeight)))
             {
                 return;
             }
 
             _interactionDiagnostics.Clear();
+            ApplyCurrentSheetExtentToCanvas();
             RefreshSheetSelector();
+            RenderDiagram();
             RefreshCompilation(false);
-            SetStatus("Лист переименован: " + oldName + " → " + name);
+            SetStatus(
+                "Свойства листа обновлены: " + editedSheet.Name + " · " +
+                Math.Round(editedSheet.Width) + "×" + Math.Round(editedSheet.Height));
         }
 
         private void DeleteSheet_Click(object sender, RoutedEventArgs e)
@@ -241,8 +272,7 @@ namespace TiaSclStudio.App
             _selectedWireId = null;
             _selectedGroupId = null;
             _sheet = sheet;
-            DiagramCanvas.Width = Math.Max(900.0, sheet.Width);
-            DiagramCanvas.Height = Math.Max(560.0, sheet.Height);
+            ApplyCurrentSheetExtentToCanvas();
             RefreshSheetSelector();
             RenderDiagram();
             ApplyDiagramZoom();
@@ -257,6 +287,21 @@ namespace TiaSclStudio.App
             {
                 SetStatus(status);
             }
+        }
+
+        private void ApplyCurrentSheetExtentToCanvas()
+        {
+            if (_sheet == null || DiagramCanvas == null)
+            {
+                return;
+            }
+
+            DiagramCanvas.Width = Math.Max(
+                SheetEditingLogic.MinimumSheetWidth,
+                _sheet.Width);
+            DiagramCanvas.Height = Math.Max(
+                SheetEditingLogic.MinimumSheetHeight,
+                _sheet.Height);
         }
 
         private void CaptureCurrentSheetViewport()
@@ -307,6 +352,7 @@ namespace TiaSclStudio.App
             if ((!isMiddle && !isSpaceLeft) ||
                 _onlineBusy ||
                 _dragNode != null ||
+                IsGroupDragActive() ||
                 _isLassoSelecting)
             {
                 return;
@@ -338,7 +384,7 @@ namespace TiaSclStudio.App
             var buttonPressed = _panMouseButton == MouseButton.Middle
                 ? e.MiddleButton == MouseButtonState.Pressed
                 : e.LeftButton == MouseButtonState.Pressed;
-            if (!buttonPressed || _onlineBusy || _dragNode != null)
+            if (!buttonPressed || _onlineBusy || _dragNode != null || IsGroupDragActive())
             {
                 EndCanvasPan();
                 e.Handled = true;
@@ -395,6 +441,7 @@ namespace TiaSclStudio.App
                 Keyboard.IsKeyDown(Key.Space) ||
                 _onlineBusy ||
                 _dragNode != null ||
+                IsGroupDragActive() ||
                 _isPanning)
             {
                 return false;
@@ -436,7 +483,10 @@ namespace TiaSclStudio.App
                 return;
             }
 
-            if (e.LeftButton != MouseButtonState.Pressed || _onlineBusy || _dragNode != null)
+            if (e.LeftButton != MouseButtonState.Pressed ||
+                _onlineBusy ||
+                _dragNode != null ||
+                IsGroupDragActive())
             {
                 CompleteLassoSelection(false);
                 e.Handled = true;

@@ -2865,6 +2865,11 @@ namespace TiaSclStudio.SelfTest
                 out third,
                 out outside);
 
+            // Keep both initial owners geometrically valid. The scenario below is
+            // specifically about rejecting a selection spanning two direct owners.
+            second.X = 560.0;
+            second.Y = 120.0;
+
             var firstOwner = GroupEditingLogic.CreateDraft("First owner", string.Empty, 0, 0, 400, 240);
             var secondOwner = GroupEditingLogic.CreateDraft("Second owner", string.Empty, 500, 0, 400, 240);
             GroupEditingLogic.Add(project, sheet.Id, firstOwner, new[] { first.Id });

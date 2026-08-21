@@ -38,6 +38,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="14" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
@@ -56,14 +57,106 @@
                      BorderThickness="1"
                      CaretBrush="{StaticResource AccentBrush}"
                      SelectionBrush="{StaticResource AccentMutedBrush}" />
-            <TextBlock Grid.Row="3"
+
+            <StackPanel x:Name="GeometryPanel"
+                        Grid.Row="3"
+                        Margin="0,0,0,14"
+                        Visibility="Collapsed">
+                <TextBlock Text="ГЕОМЕТРИЯ"
+                           Margin="0,0,0,7"
+                           FontSize="10"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource TextMutedBrush}" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="X"
+                                   Margin="0,0,0,5"
+                                   FontSize="9"
+                                   Foreground="{StaticResource TextDimBrush}" />
+                        <TextBox x:Name="XTextBox"
+                                 MinHeight="36"
+                                 Padding="9,7"
+                                 FontFamily="Consolas"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Background="#0C131A"
+                                 BorderBrush="{StaticResource BorderStrongBrush}"
+                                 BorderThickness="1"
+                                 CaretBrush="{StaticResource AccentBrush}"
+                                 SelectionBrush="{StaticResource AccentMutedBrush}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Y"
+                                   Margin="0,0,0,5"
+                                   FontSize="9"
+                                   Foreground="{StaticResource TextDimBrush}" />
+                        <TextBox x:Name="YTextBox"
+                                 MinHeight="36"
+                                 Padding="9,7"
+                                 FontFamily="Consolas"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Background="#0C131A"
+                                 BorderBrush="{StaticResource BorderStrongBrush}"
+                                 BorderThickness="1"
+                                 CaretBrush="{StaticResource AccentBrush}"
+                                 SelectionBrush="{StaticResource AccentMutedBrush}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Text="ШИРИНА"
+                                   Margin="0,0,0,5"
+                                   FontSize="9"
+                                   Foreground="{StaticResource TextDimBrush}" />
+                        <TextBox x:Name="WidthTextBox"
+                                 MinHeight="36"
+                                 Padding="9,7"
+                                 FontFamily="Consolas"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Background="#0C131A"
+                                 BorderBrush="{StaticResource BorderStrongBrush}"
+                                 BorderThickness="1"
+                                 CaretBrush="{StaticResource AccentBrush}"
+                                 SelectionBrush="{StaticResource AccentMutedBrush}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="6">
+                        <TextBlock Text="ВЫСОТА"
+                                   Margin="0,0,0,5"
+                                   FontSize="9"
+                                   Foreground="{StaticResource TextDimBrush}" />
+                        <TextBox x:Name="HeightTextBox"
+                                 MinHeight="36"
+                                 Padding="9,7"
+                                 FontFamily="Consolas"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Background="#0C131A"
+                                 BorderBrush="{StaticResource BorderStrongBrush}"
+                                 BorderThickness="1"
+                                 CaretBrush="{StaticResource AccentBrush}"
+                                 SelectionBrush="{StaticResource AccentMutedBrush}" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock Margin="0,7,0,0"
+                           Text="Координаты отсчитываются от левого верхнего угла листа."
+                           FontSize="9"
+                           Foreground="{StaticResource TextDimBrush}" />
+            </StackPanel>
+
+            <TextBlock Grid.Row="4"
                        Text="КОММЕНТАРИЙ"
                        Margin="0,0,0,7"
                        FontSize="10"
                        FontWeight="SemiBold"
                        Foreground="{StaticResource TextMutedBrush}" />
             <TextBox x:Name="CommentTextBox"
-                     Grid.Row="4"
+                     Grid.Row="5"
                      Padding="11,9"
                      AcceptsReturn="True"
                      TextWrapping="Wrap"
@@ -75,7 +168,7 @@
                      CaretBrush="{StaticResource AccentBrush}"
                      SelectionBrush="{StaticResource AccentMutedBrush}" />
             <TextBlock x:Name="ValidationText"
-                       Grid.Row="5"
+                       Grid.Row="6"
                        Margin="0,9,0,0"
                        FontSize="10"
                        Foreground="{StaticResource TextMutedBrush}"

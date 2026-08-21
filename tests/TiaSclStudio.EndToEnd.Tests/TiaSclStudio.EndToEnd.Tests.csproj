@@ -49,11 +49,18 @@
   <ItemGroup>
     <Compile Include="DataTypePickerUiTests.cs" />
     <Compile Include="HardwareIoSelectionPolicyTests.cs" />
+    <Compile Include="GroupEditingLogicTests.cs" />
     <Compile Include="MainWindowSmokeTests.cs" />
     <Compile Include="SclImportApplicationLogicTests.cs" />
     <Compile Include="TiaLibraryImportUiTests.cs" />
     <Compile Include="TiaProjectInspectorUiTests.cs" />
     <Compile Include="SelfTestExecutableTests.cs" />
+    <Compile Include="DenseNodePlacementLogicTests.cs" />
+    <Compile Include="LogicNodeEditingLogicTests.cs" />
+    <Compile Include="NodeEditingLogicTests.cs" />
+    <Compile Include="NoteEditingLogicTests.cs" />
+    <Compile Include="SheetAutoLayoutLogicTests.cs" />
+    <Compile Include="SheetEditingLogicTests.cs" />
     <Compile Include="UserJourneyTests.cs" />
     <Compile Include="UdtLibraryEditorLogicTests.cs" />
     <Compile Include="WpfHost.cs" />

@@ -10,6 +10,7 @@ namespace TiaSclStudio.App
     {
         internal const double MinimumWidth = 150.0;
         internal const double MinimumHeight = 96.0;
+        internal const double MaximumGeometryExtent = SheetEditingLogic.MaximumSheetExtent;
         internal const int MaximumTitleLength = 80;
         internal const int MaximumCommentLength = 1000;
 
@@ -60,10 +61,19 @@ namespace TiaSclStudio.App
             }
 
             var members = (selectedNodeIds ?? Enumerable.Empty<Guid>()).Distinct().ToList();
-            if (members.Any(id => id == Guid.Empty) ||
-                members.Any(id => !sheet.Nodes.Any(node => node != null && node.Id == id)))
+            var selectedNodes = new List<CallNode>();
+            foreach (var memberId in members)
             {
-                throw new InvalidOperationException("Выделение содержит отсутствующий узел.");
+                var matches = (sheet.Nodes ?? new List<CallNode>())
+                    .Where(node => node != null && node.Id == memberId)
+                    .ToList();
+                if (memberId == Guid.Empty || matches.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        "Выделение содержит отсутствующий узел или дублирующийся ID узла.");
+                }
+
+                selectedNodes.Add(matches[0]);
             }
 
             var directParents = members
@@ -77,13 +87,22 @@ namespace TiaSclStudio.App
             }
 
             var parentId = directParents.Count == 0 ? Guid.Empty : directParents[0];
-            var parent = parentId == Guid.Empty
-                ? null
-                : FindGroup(sheet, parentId);
-            if (parentId != Guid.Empty && parent == null)
+            DiagramGroup parent = null;
+            if (parentId != Guid.Empty)
             {
-                throw new InvalidOperationException("Родительская область больше не существует.");
+                var parentMatches = sheet.Groups
+                    .Where(item => item != null && item.Id == parentId)
+                    .ToList();
+                if (parentMatches.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        "Родительская область отсутствует или имеет дублирующийся ID.");
+                }
+
+                parent = parentMatches[0];
             }
+
+            EnsureNewGroupFitsParentAndMembers(draft, parent, selectedNodes);
 
             var group = new DiagramGroup
             {
@@ -120,6 +139,55 @@ namespace TiaSclStudio.App
             ValidateText(normalizedTitle, normalizedComment);
             group.Title = normalizedTitle;
             group.Comment = normalizedComment;
+        }
+
+        /// <summary>
+        /// Applies absolute geometry values as a property edit. Changing X or Y moves the
+        /// complete group subtree and all of its member nodes. Width and height affect only
+        /// the selected group's frame.
+        /// </summary>
+        internal static void EditGeometry(
+            DiagramProject project,
+            Guid sheetId,
+            Guid groupId,
+            double x,
+            double y,
+            double width,
+            double height)
+        {
+            ApplyGeometry(
+                project,
+                sheetId,
+                groupId,
+                x,
+                y,
+                width,
+                height,
+                true);
+        }
+
+        /// <summary>
+        /// Changes only the selected group's frame. This is the geometry operation used by
+        /// resize handles, including handles that change the left or top edge.
+        /// </summary>
+        internal static void ResizeBounds(
+            DiagramProject project,
+            Guid sheetId,
+            Guid groupId,
+            double x,
+            double y,
+            double width,
+            double height)
+        {
+            ApplyGeometry(
+                project,
+                sheetId,
+                groupId,
+                x,
+                y,
+                width,
+                height,
+                false);
         }
 
         internal static void Ungroup(
@@ -186,47 +254,16 @@ namespace TiaSclStudio.App
             }
 
             var sheet = FindSheet(project, sheetId);
-            FindRequiredGroup(sheet, groupId);
-            var groupIds = GetSubtreeGroupIds(sheet, groupId);
-            var movedGroups = sheet.Groups.Where(item =>
-                item != null && groupIds.Contains(item.Id)).ToList();
-            var memberIds = new HashSet<Guid>(
-                movedGroups
-                    .SelectMany(group => group.MemberNodeIds ?? new List<Guid>()));
-            var movedNodes = sheet.Nodes.Where(item =>
-                item != null && memberIds.Contains(item.Id)).ToList();
-
-            foreach (var group in movedGroups)
-            {
-                var future = new DiagramGroup
-                {
-                    X = group.X + deltaX,
-                    Y = group.Y + deltaY,
-                    Width = group.Width,
-                    Height = group.Height
-                };
-                ValidateBounds(future, sheet);
-            }
-
-            foreach (var node in movedNodes)
-            {
-                if (!IsFinite(node.X + deltaX) || !IsFinite(node.Y + deltaY))
-                {
-                    throw new InvalidOperationException("Координаты узла после перемещения недопустимы.");
-                }
-            }
-
-            foreach (var group in movedGroups)
-            {
-                group.X += deltaX;
-                group.Y += deltaY;
-            }
-
-            foreach (var node in movedNodes)
-            {
-                node.X += deltaX;
-                node.Y += deltaY;
-            }
+            var group = FindRequiredGroup(sheet, groupId);
+            ApplyGeometry(
+                project,
+                sheetId,
+                groupId,
+                group.X + deltaX,
+                group.Y + deltaY,
+                group.Width,
+                group.Height,
+                true);
         }
 
         internal static ISet<Guid> GetSubtreeGroupIds(CallSheet sheet, Guid rootGroupId)
@@ -255,6 +292,351 @@ namespace TiaSclStudio.App
             }
 
             return result;
+        }
+
+        private static void ApplyGeometry(
+            DiagramProject project,
+            Guid sheetId,
+            Guid groupId,
+            double x,
+            double y,
+            double width,
+            double height,
+            bool moveContents)
+        {
+            ValidateGeometryValues(x, y, width, height);
+
+            var sheet = FindSheet(project, sheetId);
+            var selectedGroup = FindRequiredGroup(sheet, groupId);
+            ValidateExistingSheetExtent(sheet);
+            ValidateBounds(selectedGroup);
+
+            var deltaX = moveContents ? x - selectedGroup.X : 0.0;
+            var deltaY = moveContents ? y - selectedGroup.Y : 0.0;
+            if (!IsFinite(deltaX) || !IsFinite(deltaY))
+            {
+                throw new InvalidOperationException(
+                    "Group movement would produce non-finite coordinates.");
+            }
+
+            var subtreeIds = GetSubtreeGroupIds(sheet, groupId);
+            var movedGroups = sheet.Groups
+                .Where(item => item != null && subtreeIds.Contains(item.Id))
+                .ToList();
+            if (movedGroups.Count != subtreeIds.Count)
+            {
+                throw new InvalidOperationException(
+                    "The group subtree contains a missing or duplicate group identifier.");
+            }
+
+            var futureGroups = new Dictionary<Guid, GeometryBounds>();
+            foreach (var group in movedGroups)
+            {
+                var future = new GeometryBounds(
+                    group.Id == groupId ? x : group.X + deltaX,
+                    group.Id == groupId ? y : group.Y + deltaY,
+                    group.Id == groupId ? width : group.Width,
+                    group.Id == groupId ? height : group.Height);
+                ValidateSafeBounds(future, "group");
+                futureGroups.Add(group.Id, future);
+            }
+
+            EnsureSelectedGroupFitsParent(
+                sheet,
+                selectedGroup,
+                futureGroups);
+
+            var memberIds = new HashSet<Guid>(movedGroups.SelectMany(group =>
+                group.MemberNodeIds ?? new List<Guid>()));
+            var movedNodes = new Dictionary<Guid, CallNode>();
+            var futureNodes = new Dictionary<Guid, GeometryBounds>();
+            foreach (var memberId in memberIds)
+            {
+                var matches = (sheet.Nodes ?? new List<CallNode>())
+                    .Where(candidate => candidate != null && candidate.Id == memberId)
+                    .ToList();
+                if (memberId == Guid.Empty || matches.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        "A group member node is missing or has a duplicate identifier.");
+                }
+
+                var node = matches[0];
+                var future = new GeometryBounds(
+                    node.X + deltaX,
+                    node.Y + deltaY,
+                    SheetEditingLogic.GetNodeWidth(node),
+                    SheetEditingLogic.GetNodeHeight(node));
+                ValidateSafeBounds(future, "node");
+                movedNodes.Add(node.Id, node);
+                futureNodes.Add(node.Id, future);
+            }
+
+            var frameIsBeingResized = !moveContents ||
+                width != selectedGroup.Width ||
+                height != selectedGroup.Height;
+            if (frameIsBeingResized)
+            {
+                EnsureSelectedGroupContainsItsContent(
+                    selectedGroup,
+                    subtreeIds,
+                    futureGroups,
+                    futureNodes);
+            }
+
+            var requiredRight = futureGroups.Values.Max(bounds => bounds.Right);
+            var requiredBottom = futureGroups.Values.Max(bounds => bounds.Bottom);
+            if (futureNodes.Count != 0)
+            {
+                requiredRight = Math.Max(
+                    requiredRight,
+                    futureNodes.Values.Max(bounds => bounds.Right));
+                requiredBottom = Math.Max(
+                    requiredBottom,
+                    futureNodes.Values.Max(bounds => bounds.Bottom));
+            }
+
+            var grownWidth = SheetEditingLogic.GrowExtentToFit(
+                sheet.Width,
+                requiredRight);
+            var grownHeight = SheetEditingLogic.GrowExtentToFit(
+                sheet.Height,
+                requiredBottom);
+
+            // Commit only after the complete candidate has been validated. Wires and all
+            // non-geometry state remain untouched, and the caller can record one history item.
+            foreach (var group in movedGroups)
+            {
+                var future = futureGroups[group.Id];
+                group.X = future.X;
+                group.Y = future.Y;
+                if (group.Id == groupId)
+                {
+                    group.Width = width;
+                    group.Height = height;
+                }
+            }
+
+            foreach (var pair in movedNodes)
+            {
+                var future = futureNodes[pair.Key];
+                pair.Value.X = future.X;
+                pair.Value.Y = future.Y;
+            }
+
+            sheet.Width = grownWidth;
+            sheet.Height = grownHeight;
+        }
+
+        private static void EnsureSelectedGroupFitsParent(
+            CallSheet sheet,
+            DiagramGroup selectedGroup,
+            IDictionary<Guid, GeometryBounds> futureGroups)
+        {
+            if (selectedGroup.ParentGroupId == Guid.Empty)
+            {
+                return;
+            }
+
+            var parentMatches = sheet.Groups
+                .Where(group =>
+                    group != null && group.Id == selectedGroup.ParentGroupId)
+                .ToList();
+            if (parentMatches.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "The parent group is missing or has a duplicate identifier.");
+            }
+
+            GeometryBounds parentBounds;
+            if (!futureGroups.TryGetValue(selectedGroup.ParentGroupId, out parentBounds))
+            {
+                var parent = parentMatches[0];
+                parentBounds = new GeometryBounds(
+                    parent.X,
+                    parent.Y,
+                    parent.Width,
+                    parent.Height);
+            }
+
+            ValidateSafeBounds(parentBounds, "parent group");
+            GeometryBounds selectedBounds;
+            if (!futureGroups.TryGetValue(selectedGroup.Id, out selectedBounds) ||
+                !Contains(parentBounds, selectedBounds))
+            {
+                throw new InvalidOperationException(
+                    "The requested group bounds must remain inside the parent group.");
+            }
+        }
+
+        private static void EnsureNewGroupFitsParentAndMembers(
+            DiagramGroup draft,
+            DiagramGroup parent,
+            IEnumerable<CallNode> selectedNodes)
+        {
+            var draftBounds = new GeometryBounds(
+                draft.X,
+                draft.Y,
+                draft.Width,
+                draft.Height);
+            ValidateSafeBounds(draftBounds, "group");
+
+            if (parent != null)
+            {
+                var parentBounds = new GeometryBounds(
+                    parent.X,
+                    parent.Y,
+                    parent.Width,
+                    parent.Height);
+                ValidateSafeBounds(parentBounds, "parent group");
+                if (!Contains(parentBounds, draftBounds))
+                {
+                    throw new InvalidOperationException(
+                        "The new group must remain inside its parent group.");
+                }
+            }
+
+            foreach (var node in selectedNodes ?? Enumerable.Empty<CallNode>())
+            {
+                var nodeBounds = new GeometryBounds(
+                    node.X,
+                    node.Y,
+                    SheetEditingLogic.GetNodeWidth(node),
+                    SheetEditingLogic.GetNodeHeight(node));
+                ValidateSafeBounds(nodeBounds, "node");
+                if (!Contains(draftBounds, nodeBounds))
+                {
+                    throw new InvalidOperationException(
+                        "The new group must contain every selected member node.");
+                }
+            }
+        }
+
+        private static void EnsureSelectedGroupContainsItsContent(
+            DiagramGroup selectedGroup,
+            ISet<Guid> subtreeIds,
+            IDictionary<Guid, GeometryBounds> futureGroups,
+            IDictionary<Guid, GeometryBounds> futureNodes)
+        {
+            var selectedBounds = futureGroups[selectedGroup.Id];
+            foreach (var memberId in (selectedGroup.MemberNodeIds ?? new List<Guid>()).Distinct())
+            {
+                GeometryBounds memberBounds;
+                if (!futureNodes.TryGetValue(memberId, out memberBounds) ||
+                    !Contains(selectedBounds, memberBounds))
+                {
+                    throw new InvalidOperationException(
+                        "The requested group bounds would clip a direct member node.");
+                }
+            }
+
+            foreach (var descendantId in subtreeIds.Where(id => id != selectedGroup.Id))
+            {
+                GeometryBounds descendantBounds;
+                if (!futureGroups.TryGetValue(descendantId, out descendantBounds) ||
+                    !Contains(selectedBounds, descendantBounds))
+                {
+                    throw new InvalidOperationException(
+                        "The requested group bounds would clip a child group.");
+                }
+            }
+        }
+
+        private static bool Contains(GeometryBounds outer, GeometryBounds inner)
+        {
+            return inner.X >= outer.X &&
+                inner.Y >= outer.Y &&
+                inner.Right <= outer.Right &&
+                inner.Bottom <= outer.Bottom;
+        }
+
+        private static void ValidateGeometryValues(
+            double x,
+            double y,
+            double width,
+            double height)
+        {
+            var bounds = new GeometryBounds(x, y, width, height);
+            if (!IsFinite(x) ||
+                !IsFinite(y) ||
+                !IsFinite(width) ||
+                !IsFinite(height) ||
+                x < 0.0 ||
+                y < 0.0 ||
+                width < MinimumWidth ||
+                height < MinimumHeight ||
+                width > MaximumGeometryExtent ||
+                height > MaximumGeometryExtent ||
+                x > MaximumGeometryExtent - width ||
+                y > MaximumGeometryExtent - height)
+            {
+                throw new ArgumentOutOfRangeException(
+                    "width",
+                    "Group geometry must be finite, non-negative, at least " +
+                    MinimumWidth + "x" + MinimumHeight +
+                    ", and inside the " + MaximumGeometryExtent +
+                    "x" + MaximumGeometryExtent + " safe extent.");
+            }
+
+            ValidateSafeBounds(bounds, "group");
+        }
+
+        private static void ValidateSafeBounds(GeometryBounds bounds, string itemKind)
+        {
+            if (!IsFinite(bounds.X) ||
+                !IsFinite(bounds.Y) ||
+                !IsFinite(bounds.Width) ||
+                !IsFinite(bounds.Height) ||
+                bounds.X < 0.0 ||
+                bounds.Y < 0.0 ||
+                bounds.Width < 0.0 ||
+                bounds.Height < 0.0 ||
+                bounds.Width > MaximumGeometryExtent ||
+                bounds.Height > MaximumGeometryExtent ||
+                bounds.X > MaximumGeometryExtent - bounds.Width ||
+                bounds.Y > MaximumGeometryExtent - bounds.Height)
+            {
+                throw new InvalidOperationException(
+                    "The " + itemKind +
+                    " geometry exceeds the supported safe diagram extent.");
+            }
+        }
+
+        private static void ValidateExistingSheetExtent(CallSheet sheet)
+        {
+            if (!IsFinite(sheet.Width) ||
+                !IsFinite(sheet.Height) ||
+                sheet.Width <= 0.0 ||
+                sheet.Height <= 0.0 ||
+                sheet.Width > MaximumGeometryExtent ||
+                sheet.Height > MaximumGeometryExtent)
+            {
+                throw new InvalidOperationException(
+                    "The existing sheet extent is invalid or exceeds the supported safe limit.");
+            }
+        }
+
+        private struct GeometryBounds
+        {
+            internal GeometryBounds(double x, double y, double width, double height)
+            {
+                X = x;
+                Y = y;
+                Width = width;
+                Height = height;
+            }
+
+            internal double X { get; private set; }
+
+            internal double Y { get; private set; }
+
+            internal double Width { get; private set; }
+
+            internal double Height { get; private set; }
+
+            internal double Right { get { return X + Width; } }
+
+            internal double Bottom { get { return Y + Height; } }
         }
 
         private static CallSheet FindSheet(DiagramProject project, Guid sheetId)
@@ -344,11 +726,18 @@ namespace TiaSclStudio.App
         {
             if (!IsFinite(group.X) || !IsFinite(group.Y) ||
                 !IsFinite(group.Width) || !IsFinite(group.Height) ||
-                group.Width < MinimumWidth || group.Height < MinimumHeight)
+                group.X < 0.0 || group.Y < 0.0 ||
+                group.Width < MinimumWidth || group.Height < MinimumHeight ||
+                group.Width > MaximumGeometryExtent ||
+                group.Height > MaximumGeometryExtent ||
+                group.X > MaximumGeometryExtent - group.Width ||
+                group.Y > MaximumGeometryExtent - group.Height)
             {
                 throw new InvalidOperationException(
                     "Область должна иметь конечные координаты и размер не меньше " +
-                    MinimumWidth + "×" + MinimumHeight + ".");
+                    MinimumWidth + "×" + MinimumHeight +
+                    ", полностью находясь внутри безопасного поля " +
+                    MaximumGeometryExtent + "×" + MaximumGeometryExtent + ".");
             }
         }
 

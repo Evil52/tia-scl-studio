@@ -2149,6 +2149,14 @@ namespace TiaSclStudio.App
 
             var controlPressed = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
             var historyShortcut = controlPressed && (e.Key == Key.Z || e.Key == Key.Y);
+            if (e.Key == Key.Escape && IsGroupDragActive())
+            {
+                CancelGroupDragForOnlineOperation();
+                SetStatus("Изменение области отменено");
+                e.Handled = true;
+                return;
+            }
+
             if (_dragNode != null && (historyShortcut || e.Key == Key.Delete))
             {
                 SetStatus("Сначала завершите перемещение узла");

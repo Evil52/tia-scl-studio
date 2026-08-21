@@ -511,10 +511,10 @@
                                         Height="27"
                                         Margin="0,0,3,0"
                                         Padding="0"
-                                        Content="✎"
+                                        Content="⚙"
                                         FontSize="13"
                                         Style="{StaticResource ActionButtonStyle}"
-                                        ToolTip="Переименовать активный лист"
+                                        ToolTip="Свойства активного листа и размер полотна"
                                         Click="RenameSheet_Click" />
                                 <Button x:Name="DeleteSheetButton"
                                         Grid.Column="5"

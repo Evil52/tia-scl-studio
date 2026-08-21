@@ -220,6 +220,126 @@ namespace TiaSclStudio.EndToEnd.Tests
         }
 
         [Fact]
+        public void SelectingAGroupShowsExactlyEightResizeHandlesOnOneAdornerAboveNodesAndWires()
+        {
+            OnWindow(window =>
+            {
+                var sheet = MainWindowProbe.Field<CallSheet>(window, "_sheet");
+                var group = new DiagramGroup("Resizable region", 20.0, 20.0, 420.0, 260.0);
+                sheet.Groups.Add(group);
+
+                MainWindowProbe.Call(window, "RenderDiagram");
+                MainWindowProbe.Call(window, "SelectGroup", group.Id);
+
+                var canvas = MainWindowProbe.Element<Canvas>(window, "DiagramCanvas");
+                var adorner = MainWindowProbe.Field<Grid>(window, "_groupResizeAdorner");
+                Assert.NotNull(adorner);
+                Assert.Same(canvas, adorner.Parent);
+                Assert.Equal(group.Id, Assert.IsType<Guid>(adorner.Tag));
+
+                var handles = adorner.Children
+                    .OfType<Border>()
+                    .Where(item => item.Uid.StartsWith("GroupResizeHandle-", StringComparison.Ordinal))
+                    .ToList();
+                Assert.Equal(8, handles.Count);
+                Assert.Equal(8, handles.Select(item => item.Uid).Distinct().Count());
+
+                var adornerZ = Panel.GetZIndex(adorner);
+                Assert.Equal(40, adornerZ);
+                Assert.All(
+                    MainWindowProbe.Field<Dictionary<Guid, FrameworkElement>>(window, "_nodeVisuals").Values,
+                    visual => Assert.True(Panel.GetZIndex(visual) < adornerZ));
+                Assert.All(
+                    MainWindowProbe.Field<List<System.Windows.Shapes.Path>>(window, "_wireVisuals"),
+                    visual => Assert.True(Panel.GetZIndex(visual) < adornerZ));
+            });
+        }
+
+        [Fact]
+        public void ReRenderingASelectedGroupDoesNotAccumulateResizeAdorners()
+        {
+            OnWindow(window =>
+            {
+                var sheet = MainWindowProbe.Field<CallSheet>(window, "_sheet");
+                var group = new DiagramGroup("Stable region", 20.0, 20.0, 420.0, 260.0);
+                sheet.Groups.Add(group);
+
+                MainWindowProbe.Call(window, "RenderDiagram");
+                MainWindowProbe.Call(window, "SelectGroup", group.Id);
+                for (var pass = 0; pass < 5; pass++)
+                {
+                    MainWindowProbe.Call(window, "RenderDiagram");
+                }
+
+                var canvas = MainWindowProbe.Element<Canvas>(window, "DiagramCanvas");
+                var adorners = canvas.Children
+                    .OfType<Grid>()
+                    .Where(IsGroupResizeAdorner)
+                    .ToList();
+                var adorner = Assert.Single(adorners);
+                Assert.Equal(
+                    8,
+                    adorner.Children.OfType<Border>().Count(item =>
+                        item.Uid.StartsWith("GroupResizeHandle-", StringComparison.Ordinal)));
+
+                MainWindowProbe.Call(window, "ClearDiagramSelection");
+
+                Assert.Null(MainWindowProbe.Field<Grid>(window, "_groupResizeAdorner"));
+                Assert.DoesNotContain(
+                    canvas.Children.OfType<Grid>(),
+                    IsGroupResizeAdorner);
+            });
+        }
+
+        [Fact]
+        public void NewNestedGroupBoundsAreClampedToTheirDirectParent()
+        {
+            OnWindow(window =>
+            {
+                var sheet = MainWindowProbe.Field<CallSheet>(window, "_sheet");
+                var node = sheet.Nodes.First();
+                node.X = 110.0;
+                node.Y = 130.0;
+                var parent = new DiagramGroup("Parent", 80.0, 80.0, 650.0, 420.0);
+                parent.MemberNodeIds.Add(node.Id);
+                sheet.Groups.Add(parent);
+
+                var clamped = Assert.IsType<Rect>(MainWindowProbe.Call(
+                    window,
+                    "ClampGroupBounds",
+                    new Rect(10.0, 10.0, 900.0, 700.0),
+                    new List<Guid> { node.Id }));
+
+                Assert.Equal(parent.X, clamped.X);
+                Assert.Equal(parent.Y, clamped.Y);
+                Assert.Equal(parent.Width, clamped.Width);
+                Assert.Equal(parent.Height, clamped.Height);
+            });
+        }
+
+        [Fact]
+        public void RootGroupMoveCanReachTheSafeExtentInsteadOfStoppingAtCurrentSheetSize()
+        {
+            OnWindow(window =>
+            {
+                var sheet = MainWindowProbe.Field<CallSheet>(window, "_sheet");
+                var group = new DiagramGroup("Movable root", 200.0, 180.0, 400.0, 260.0);
+                sheet.Groups.Add(group);
+
+                var delta = Assert.IsType<Vector>(MainWindowProbe.Call(
+                    window,
+                    "ClampGroupMoveDelta",
+                    group.Id,
+                    new Vector(100000.0, 100000.0)));
+
+                Assert.Equal(50000.0 - group.X - group.Width, delta.X, 6);
+                Assert.Equal(50000.0 - group.Y - group.Height, delta.Y, 6);
+                Assert.True(delta.X > sheet.Width);
+                Assert.True(delta.Y > sheet.Height);
+            });
+        }
+
+        [Fact]
         public void RenderingRepeatedlyDoesNotAccumulateVisuals()
         {
             // A leak here shows up as an editor that slows down over an afternoon.
@@ -263,6 +383,34 @@ namespace TiaSclStudio.EndToEnd.Tests
                     Assert.NotNull(group.FindName("TitleTextBox"));
                     Assert.NotNull(group.FindName("CommentTextBox"));
                     group.Close();
+
+                    var geometryGroup = new GroupEditorWindow(
+                        "Geometry region",
+                        "comment",
+                        12.5,
+                        24.5,
+                        420.0,
+                        260.0);
+                    Assert.Equal(
+                        Visibility.Visible,
+                        Assert.IsType<StackPanel>(geometryGroup.FindName("GeometryPanel")).Visibility);
+                    Assert.NotNull(geometryGroup.FindName("XTextBox"));
+                    Assert.NotNull(geometryGroup.FindName("YTextBox"));
+                    Assert.NotNull(geometryGroup.FindName("WidthTextBox"));
+                    Assert.NotNull(geometryGroup.FindName("HeightTextBox"));
+                    geometryGroup.Close();
+
+                    var sheetProperties = new SheetPropertiesWindow(
+                        "Smoke sheet",
+                        2400.0,
+                        1600.0,
+                        candidate => string.IsNullOrWhiteSpace(candidate)
+                            ? "Name is required."
+                            : string.Empty);
+                    Assert.NotNull(sheetProperties.FindName("NameTextBox"));
+                    Assert.NotNull(sheetProperties.FindName("WidthTextBox"));
+                    Assert.NotNull(sheetProperties.FindName("HeightTextBox"));
+                    sheetProperties.Close();
                 }
                 finally
                 {
@@ -427,6 +575,13 @@ namespace TiaSclStudio.EndToEnd.Tests
                     .OrderBy(node => node.Id)
                     .Select(node => node.Id + ":" + node.Title + ":" + node.X + ":" + node.Y)
                     .Concat(sheet.Wires.OrderBy(wire => wire.Id).Select(wire => wire.Id.ToString())));
+        }
+
+        private static bool IsGroupResizeAdorner(Grid candidate)
+        {
+            return candidate != null && candidate.Children
+                .OfType<Border>()
+                .Any(item => item.Uid.StartsWith("GroupResizeHandle-", StringComparison.Ordinal));
         }
     }
 }

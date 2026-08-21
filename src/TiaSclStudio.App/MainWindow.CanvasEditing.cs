@@ -1336,6 +1336,7 @@ namespace TiaSclStudio.App
 
             _sheet.Zoom = NormalizeZoom(_sheet.Zoom);
             DiagramCanvas.LayoutTransform = new ScaleTransform(_sheet.Zoom, _sheet.Zoom);
+            UpdateGroupResizeAdorner();
             if (ZoomResetButton != null)
             {
                 ZoomResetButton.Content = Math.Round(_sheet.Zoom * 100.0) + "%";

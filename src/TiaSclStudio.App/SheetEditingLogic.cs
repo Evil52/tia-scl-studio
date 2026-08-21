@@ -10,6 +10,12 @@ namespace TiaSclStudio.App
 {
     internal static class SheetEditingLogic
     {
+        internal const double DefaultSheetWidth = 1180.0;
+        internal const double DefaultSheetHeight = 700.0;
+        internal const double MinimumSheetWidth = 900.0;
+        internal const double MinimumSheetHeight = 560.0;
+        internal const double MaximumSheetExtent = 50000.0;
+
         internal static CallSheet CreateSheet(DiagramProject project, string name)
         {
             if (project == null)
@@ -31,8 +37,8 @@ namespace TiaSclStudio.App
             var sheet = new CallSheet
             {
                 Name = name,
-                Width = 1180.0,
-                Height = 700.0,
+                Width = DefaultSheetWidth,
+                Height = DefaultSheetHeight,
                 Zoom = 1.0
             };
             project.Sheets.Add(sheet);
@@ -52,6 +58,32 @@ namespace TiaSclStudio.App
             }
 
             sheet.Name = name;
+        }
+
+        internal static void EditProperties(
+            DiagramProject project,
+            CallSheet sheet,
+            string name,
+            double width,
+            double height)
+        {
+            EnsureSheetBelongsToProject(project, sheet);
+
+            string error;
+            if (!TryValidateName(project, sheet, name, out error))
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            ValidateSheetExtent(width, MinimumSheetWidth, "width");
+            ValidateSheetExtent(height, MinimumSheetHeight, "height");
+            EnsureContentFits(sheet, width, height);
+
+            // Commit only after the complete candidate has been validated. The caller can
+            // therefore record this method as one semantic history transaction.
+            sheet.Name = name;
+            sheet.Width = width;
+            sheet.Height = height;
         }
 
         internal static CallSheet DeleteSheet(DiagramProject project, CallSheet sheet)
@@ -332,6 +364,176 @@ namespace TiaSclStudio.App
             }
         }
 
+        private static void ValidateSheetExtent(
+            double value,
+            double minimum,
+            string parameterName)
+        {
+            if (!IsFinite(value) || value < minimum || value > MaximumSheetExtent)
+            {
+                throw new ArgumentOutOfRangeException(
+                    parameterName,
+                    "Sheet extent must be finite and between " + minimum +
+                    " and " + MaximumSheetExtent + ".");
+            }
+        }
+
+        private static void EnsureContentFits(CallSheet sheet, double width, double height)
+        {
+            foreach (var node in sheet.Nodes ?? new List<CallNode>())
+            {
+                if (node == null)
+                {
+                    continue;
+                }
+
+                var nodeWidth = GetNodeWidth(node);
+                var nodeHeight = GetNodeHeight(node);
+                if (!FitsInsideSheet(node.X, node.Y, nodeWidth, nodeHeight, width, height))
+                {
+                    throw new InvalidOperationException(
+                        "The requested sheet size would clip node '" +
+                        (node.Title ?? node.Id.ToString()) + "'.");
+                }
+            }
+
+            foreach (var group in sheet.Groups ?? new List<DiagramGroup>())
+            {
+                if (group == null)
+                {
+                    continue;
+                }
+
+                if (!FitsInsideSheet(
+                    group.X,
+                    group.Y,
+                    group.Width,
+                    group.Height,
+                    width,
+                    height))
+                {
+                    throw new InvalidOperationException(
+                        "The requested sheet size would clip group '" +
+                        (group.Title ?? group.Id.ToString()) + "'.");
+                }
+            }
+        }
+
+        private static bool FitsInsideSheet(
+            double x,
+            double y,
+            double itemWidth,
+            double itemHeight,
+            double sheetWidth,
+            double sheetHeight)
+        {
+            return IsFinite(x) &&
+                IsFinite(y) &&
+                IsFinite(itemWidth) &&
+                IsFinite(itemHeight) &&
+                x >= 0.0 &&
+                y >= 0.0 &&
+                itemWidth >= 0.0 &&
+                itemHeight >= 0.0 &&
+                x <= sheetWidth &&
+                y <= sheetHeight &&
+                itemWidth <= sheetWidth - x &&
+                itemHeight <= sheetHeight - y;
+        }
+
+        internal static double GetNodeWidth(CallNode node)
+        {
+            if (node == null)
+            {
+                throw new ArgumentNullException("node");
+            }
+
+            if (node is BlockCallNode)
+            {
+                return 272.0;
+            }
+
+            if (node is ConstantNode)
+            {
+                return 128.0;
+            }
+
+            if (node is TagNode)
+            {
+                return 154.0;
+            }
+
+            if (node is LogicNode)
+            {
+                return 224.0;
+            }
+
+            if (node is NoteNode)
+            {
+                return 238.0;
+            }
+
+            return 220.0;
+        }
+
+        internal static double GetNodeHeight(CallNode node)
+        {
+            if (node == null)
+            {
+                throw new ArgumentNullException("node");
+            }
+
+            var pins = node.Pins ?? new List<Pin>();
+            if (node is BlockCallNode)
+            {
+                var inputCount = pins.Count(pin =>
+                    pin != null && pin.Direction == PinDirection.Input);
+                var outputCount = pins.Count(pin =>
+                    pin != null && pin.Direction == PinDirection.Output);
+                return 54.0 + 18.0 + Math.Max(inputCount, outputCount) * 32.0;
+            }
+
+            if (node is LogicNode)
+            {
+                var inputCount = pins.Count(pin =>
+                    pin != null && pin.Direction == PinDirection.Input);
+                var outputCount = pins.Count(pin =>
+                    pin != null && pin.Direction == PinDirection.Output);
+                return 42.0 + 15.0 + Math.Max(inputCount, outputCount) * 32.0;
+            }
+
+            return node is NoteNode ? 112.0 : 44.0;
+        }
+
+        internal static double GrowExtentToFit(double current, double required)
+        {
+            if (!IsFinite(current) ||
+                !IsFinite(required) ||
+                current <= 0.0 ||
+                current > MaximumSheetExtent ||
+                required < 0.0 ||
+                required > MaximumSheetExtent)
+            {
+                throw new InvalidOperationException(
+                    "The diagram extent is invalid or exceeds the supported safe limit.");
+            }
+
+            if (required <= current)
+            {
+                return current;
+            }
+
+            const double growthStep = 256.0;
+            return Math.Min(
+                MaximumSheetExtent,
+                Math.Ceiling(required / growthStep) * growthStep);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
         private sealed class SymbolEntry
         {
             internal SymbolEntry(string name, string owner)
@@ -371,13 +573,12 @@ namespace TiaSclStudio.App
 
     internal static class DenseNodePlacementLogic
     {
-        internal const double DefaultSheetWidth = 1180.0;
-        internal const double DefaultSheetHeight = 700.0;
-        internal const double MaximumSheetExtent = 50000.0;
+        internal const double DefaultSheetWidth = SheetEditingLogic.DefaultSheetWidth;
+        internal const double DefaultSheetHeight = SheetEditingLogic.DefaultSheetHeight;
+        internal const double MaximumSheetExtent = SheetEditingLogic.MaximumSheetExtent;
         internal const double NodeMargin = 24.0;
         internal const double NodeGap = 28.0;
 
-        private const double ExtentGrowthStep = 256.0;
         private const int MaximumSearchRings = 128;
 
         internal static DenseNodePlacementResult FindNearestFreePlacement(
@@ -533,14 +734,7 @@ namespace TiaSclStudio.App
 
         private static double GrowExtent(double current, double required)
         {
-            if (required <= current)
-            {
-                return current;
-            }
-
-            return Math.Min(
-                MaximumSheetExtent,
-                Math.Ceiling(required / ExtentGrowthStep) * ExtentGrowthStep);
+            return SheetEditingLogic.GrowExtentToFit(current, required);
         }
 
         private static bool IsBefore(

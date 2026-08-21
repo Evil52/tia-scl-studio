@@ -97,6 +97,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="SheetPropertiesWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="ConstantNodeCreateWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -187,6 +191,9 @@
     <Compile Include="NoteEditingLogic.cs" />
     <Compile Include="GroupEditorWindow.xaml.cs">
       <DependentUpon>GroupEditorWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="SheetPropertiesWindow.xaml.cs">
+      <DependentUpon>SheetPropertiesWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="ConstantNodeCreateWindow.xaml.cs">
       <DependentUpon>ConstantNodeCreateWindow.xaml</DependentUpon>
