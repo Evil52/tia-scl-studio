@@ -1,0 +1,231 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.2.0
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and publish TIA Online release
+    # The real adapter is compiled against the locally installed Siemens V17
+    # facade. A hosted runner can only build the offline stub.
+    runs-on: [self-hosted, Windows, X64, tia-openness-v17]
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Resolve release tag
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            '${{ inputs.tag }}'
+          } else {
+            '${{ github.ref_name }}'
+          }
+          if ($tag -notmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Release tag '$tag' is not a semantic version such as v0.2.0."
+          }
+          "RELEASE_TAG=$tag" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Locate Siemens Openness V17 facade
+        shell: pwsh
+        run: |
+          $candidates = 20..17 | ForEach-Object {
+            "C:\Program Files\Siemens\Automation\Portal V$_\PublicAPI\V17\Siemens.Engineering.dll"
+          }
+          $api = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $api) {
+            throw 'No Siemens.Engineering V17 facade was found. This runner cannot build a TIA Online release.'
+          }
+          "TIA_OPENNESS_V17=$api" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Using $api"
+
+      - name: Restore
+        run: msbuild TiaSclStudio.sln -t:Restore -v:minimal -nologo
+
+      - name: Build real Legacy V17 adapter
+        shell: pwsh
+        run: |
+          msbuild TiaSclStudio.sln -t:Rebuild `
+            -p:Configuration=Release `
+            -p:Platform=x64 `
+            "-p:TiaOpennessV17AssemblyPath=$env:TIA_OPENNESS_V17" `
+            -p:HasTiaOpennessV17=true `
+            -p:TreatWarningsAsErrors=true `
+            -v:minimal -nologo -m
+          if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE." }
+
+      - name: Verify deployable adapter
+        shell: pwsh
+        run: |
+          [Reflection.Assembly]::LoadFrom((Resolve-Path 'src\TiaSclStudio.Openness\bin\x64\Release\TiaSclStudio.Openness.dll')) | Out-Null
+          [Reflection.Assembly]::LoadFrom($env:TIA_OPENNESS_V17) | Out-Null
+          $adapter = [Reflection.Assembly]::LoadFrom((Resolve-Path 'src\TiaSclStudio.Openness.Legacy.V17\bin\x64\Release\TiaSclStudio.Openness.Legacy.V17.dll'))
+          if (-not $adapter.GetType('TiaSclStudio.Openness.Legacy.V17.LegacyV17Gateway', $false)) {
+            throw 'The release contains the offline stub instead of LegacyV17Gateway.'
+          }
+          if (Test-Path 'src\TiaSclStudio.App\bin\x64\Release\Siemens.Engineering.dll') {
+            throw 'Siemens.Engineering.dll must never be copied into the application package.'
+          }
+
+      - name: Run all tests
+        shell: pwsh
+        run: .\build\Invoke-Tests.ps1 -Configuration Release -NoBuild
+
+      - name: Run offline acceptance checks
+        shell: pwsh
+        run: |
+          .\tools\selftest\bin\Release\TiaSclStudio.SelfTest.exe "$env:RUNNER_TEMP\tiascl-selftest"
+          if ($LASTEXITCODE -ne 0) { throw "SelfTest failed with exit code $LASTEXITCODE." }
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\wpf-smoke.ps1 `
+            -ArtifactDirectory .\src\TiaSclStudio.App\bin\x64\Release
+          if ($LASTEXITCODE -ne 0) { throw "WPF smoke failed with exit code $LASTEXITCODE." }
+
+      - name: Authenticode sign when certificate secrets are configured
+        shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+        run: |
+          if (-not $env:SIGNING_CERT_BASE64) {
+            Write-Host '::notice::Signing certificate is not configured; publishing an unsigned package.'
+            exit 0
+          }
+          if (-not $env:SIGNING_CERT_PASSWORD) {
+            throw 'WINDOWS_SIGNING_CERT_BASE64 is set, but WINDOWS_SIGNING_CERT_PASSWORD is missing.'
+          }
+
+          $pfx = Join-Path $env:RUNNER_TEMP 'tia-scl-studio-signing.pfx'
+          try {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_CERT_BASE64))
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+              -Filter signtool.exe -Recurse -ErrorAction Stop |
+              Where-Object FullName -Match '\\x64\\signtool\.exe$' |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if (-not $signtool) { throw 'signtool.exe (x64) was not found.' }
+
+            $files = Get-ChildItem 'src\TiaSclStudio.App\bin\x64\Release' -File |
+              Where-Object { $_.Name -eq 'TiaSclStudio.App.exe' -or $_.Name -like 'TiaSclStudio.*.dll' }
+            foreach ($file in $files) {
+              & $signtool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+                /f $pfx /p $env:SIGNING_CERT_PASSWORD $file.FullName
+              if ($LASTEXITCODE -ne 0) { throw "Signing failed for $($file.Name)." }
+            }
+          } finally {
+            Remove-Item -LiteralPath $pfx -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path $PWD 'artifacts\release'
+          $packageName = "TiaSclStudio-$env:RELEASE_TAG-win-x64"
+          $stage = Join-Path $releaseRoot $packageName
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+          $app = Resolve-Path 'src\TiaSclStudio.App\bin\x64\Release'
+          Copy-Item (Join-Path $app 'TiaSclStudio.App.exe') $stage
+          Copy-Item (Join-Path $app 'TiaSclStudio.App.exe.config') $stage
+          Get-ChildItem $app -Filter 'TiaSclStudio.*.dll' -File | Copy-Item -Destination $stage
+          Copy-Item README.md, CHANGELOG.md $stage
+          @(
+            "Release: $env:RELEASE_TAG"
+            "Commit: $env:GITHUB_SHA"
+            'Target: Windows x64 / .NET Framework 4.8'
+            'TIA adapter: Legacy V17-V20 (Siemens runtime DLLs are not distributed)'
+          ) | Set-Content (Join-Path $stage 'BUILD-INFO.txt') -Encoding UTF8
+
+          if (Get-ChildItem $stage -Filter 'Siemens*.dll' -File) {
+            throw 'A Siemens runtime DLL entered the release staging directory.'
+          }
+
+          $zip = Join-Path $releaseRoot "$packageName.zip"
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal -Force
+          $hashFile = "$zip.sha256"
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *$([IO.Path]::GetFileName($zip))" | Set-Content $hashFile -Encoding ascii
+          "RELEASE_ZIP=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_HASH=$hashFile" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload immutable workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TiaSclStudio-${{ env.RELEASE_TAG }}-win-x64
+          path: |
+            ${{ env.RELEASE_ZIP }}
+            ${{ env.RELEASE_HASH }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create or update GitHub Release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ZIP: ${{ env.RELEASE_ZIP }}
+          RELEASE_HASH: ${{ env.RELEASE_HASH }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            let release;
+            try {
+              release = (await github.rest.repos.getReleaseByTag({
+                owner, repo, tag: process.env.RELEASE_TAG
+              })).data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              release = (await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: process.env.RELEASE_TAG,
+                target_commitish: context.sha,
+                name: `TIA SCL Studio ${process.env.RELEASE_TAG}`,
+                generate_release_notes: true,
+                prerelease: process.env.RELEASE_TAG.includes('-')
+              })).data;
+            }
+
+            for (const file of [process.env.RELEASE_ZIP, process.env.RELEASE_HASH]) {
+              const name = path.basename(file);
+              const duplicate = release.assets.find(asset => asset.name === name);
+              if (duplicate) {
+                await github.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: duplicate.id });
+              }
+              const data = fs.readFileSync(file);
+              await github.rest.repos.uploadReleaseAsset({
+                owner,
+                repo,
+                release_id: release.id,
+                name,
+                data,
+                headers: {
+                  'content-type': name.endsWith('.zip') ? 'application/zip' : 'text/plain',
+                  'content-length': data.length
+                }
+              });
+            }

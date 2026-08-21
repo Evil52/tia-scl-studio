@@ -1,0 +1,55 @@
+# A local SonarQube for analysing this repository.
+#
+#   docker compose -f build/sonarqube-compose.yml up -d
+#   # wait until http://localhost:9000 answers, then sign in as admin/admin
+#   docker compose -f build/sonarqube-compose.yml down       # keeps the data
+#   docker compose -f build/sonarqube-compose.yml down -v    # deletes it
+#
+# The named volumes keep projects, rules and history across restarts, so a
+# quality gate you tune once stays tuned.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: tiascl-sonar-db
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  sonarqube:
+    image: sonarqube:community
+    container_name: tiascl-sonarqube
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_logs:/opt/sonarqube/logs
+      - sonar_extensions:/opt/sonarqube/extensions
+    # Elasticsearch inside SonarQube needs these; without them the server
+    # starts and then dies during its first index build.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    stop_grace_period: 2m
+
+volumes:
+  sonar_db:
+  sonar_data:
+  sonar_logs:
+  sonar_extensions:

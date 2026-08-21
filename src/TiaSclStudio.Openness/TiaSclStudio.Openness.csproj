@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.props" Condition="Exists('$(MSBuildToolsPath)\Microsoft.Common.props')" />
+
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{7617E864-C75B-42BA-84E4-5A582858DD51}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>TiaSclStudio.Openness</RootNamespace>
+    <AssemblyName>TiaSclStudio.Openness</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <TargetFrameworkProfile />
+    <LangVersion>7.3</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Adapters\ITiaGatewayAdapterFactory.cs" />
+    <Compile Include="Diagnostics\DiagnosticSeverity.cs" />
+    <Compile Include="Diagnostics\OpennessDiagnostic.cs" />
+    <Compile Include="Diagnostics\OpennessDiagnosticCodes.cs" />
+    <Compile Include="Discovery\OpennessDiscoveryResult.cs" />
+    <Compile Include="Discovery\OpennessInstallationLocator.cs" />
+    <Compile Include="Gateway\ITiaGateway.cs" />
+    <Compile Include="Gateway\OfflineGateway.cs" />
+    <Compile Include="Gateway\TiaCpuFamily.cs" />
+    <Compile Include="Gateway\TiaConnectionMode.cs" />
+    <Compile Include="Gateway\TiaConnectionRequest.cs" />
+    <Compile Include="Gateway\TiaExportCollision.cs" />
+    <Compile Include="Gateway\TiaExportCollisionKind.cs" />
+    <Compile Include="Gateway\TiaExportOperation.cs" />
+    <Compile Include="Gateway\TiaExportOperationKind.cs" />
+    <Compile Include="Gateway\TiaExportOutcome.cs" />
+    <Compile Include="Gateway\TiaExportPreview.cs" />
+    <Compile Include="Gateway\TiaExportRequest.cs" />
+    <Compile Include="Gateway\TiaExportResult.cs" />
+    <Compile Include="Gateway\TiaGatewayMode.cs" />
+    <Compile Include="Gateway\TiaGatewayStatus.cs" />
+    <Compile Include="Gateway\TiaHardwareIoCatalog.cs" />
+    <Compile Include="Gateway\TiaHardwareIoChannel.cs" />
+    <Compile Include="Gateway\TiaIoChannelKind.cs" />
+    <Compile Include="Gateway\TiaPlcTag.cs" />
+    <Compile Include="Gateway\TiaSourceFile.cs" />
+    <Compile Include="Gateway\TiaSourceKind.cs" />
+    <Compile Include="Model\OpennessApiFamily.cs" />
+    <Compile Include="Model\OpennessDiscoverySource.cs" />
+    <Compile Include="Model\OpennessInstallation.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

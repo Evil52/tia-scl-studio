@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.props" Condition="Exists('$(MSBuildToolsPath)\Microsoft.Common.props')" />
+
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{6A09541C-6556-487D-A0A8-194E15FE055F}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>TiaSclStudio.Openness.Legacy.V17</RootNamespace>
+    <AssemblyName>TiaSclStudio.Openness.Legacy.V17</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <TargetFrameworkProfile />
+    <LangVersion>7.3</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <TiaOpennessV17AssemblyPath Condition=" '$(TiaOpennessV17AssemblyPath)' == '' And Exists('C:\Program Files\Siemens\Automation\Portal V20\PublicAPI\V17\Siemens.Engineering.dll') ">C:\Program Files\Siemens\Automation\Portal V20\PublicAPI\V17\Siemens.Engineering.dll</TiaOpennessV17AssemblyPath>
+    <TiaOpennessV17AssemblyPath Condition=" '$(TiaOpennessV17AssemblyPath)' == '' And Exists('C:\Program Files\Siemens\Automation\Portal V19\PublicAPI\V17\Siemens.Engineering.dll') ">C:\Program Files\Siemens\Automation\Portal V19\PublicAPI\V17\Siemens.Engineering.dll</TiaOpennessV17AssemblyPath>
+    <TiaOpennessV17AssemblyPath Condition=" '$(TiaOpennessV17AssemblyPath)' == '' And Exists('C:\Program Files\Siemens\Automation\Portal V18\PublicAPI\V17\Siemens.Engineering.dll') ">C:\Program Files\Siemens\Automation\Portal V18\PublicAPI\V17\Siemens.Engineering.dll</TiaOpennessV17AssemblyPath>
+    <TiaOpennessV17AssemblyPath Condition=" '$(TiaOpennessV17AssemblyPath)' == '' And Exists('C:\Program Files\Siemens\Automation\Portal V17\PublicAPI\V17\Siemens.Engineering.dll') ">C:\Program Files\Siemens\Automation\Portal V17\PublicAPI\V17\Siemens.Engineering.dll</TiaOpennessV17AssemblyPath>
+    <HasTiaOpennessV17 Condition="Exists('$(TiaOpennessV17AssemblyPath)')">true</HasTiaOpennessV17>
+    <HasTiaOpennessV17 Condition=" '$(HasTiaOpennessV17)' == '' ">false</HasTiaOpennessV17>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+  </ItemGroup>
+
+  <ItemGroup Condition=" '$(HasTiaOpennessV17)' == 'true' ">
+    <Reference Include="Siemens.Engineering, Version=17.0.0.0, Culture=neutral, PublicKeyToken=d29ec89bac048f84">
+      <SpecificVersion>true</SpecificVersion>
+      <HintPath>$(TiaOpennessV17AssemblyPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition=" '$(HasTiaOpennessV17)' == 'true' ">
+    <Compile Include="LegacyV17Gateway.cs" />
+    <Compile Include="LegacyV17GatewayAdapterFactory.cs" />
+    <Compile Include="SiemensAssemblyResolver.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition=" '$(HasTiaOpennessV17)' != 'true' ">
+    <Compile Include="LegacyV17GatewayAdapterFactory.Stub.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SclSourceInspector.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TiaSclStudio.Openness\TiaSclStudio.Openness.csproj">
+      <Project>{7617E864-C75B-42BA-84E4-5A582858DD51}</Project>
+      <Name>TiaSclStudio.Openness</Name>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

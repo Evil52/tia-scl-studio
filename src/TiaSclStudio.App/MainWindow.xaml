@@ -1,0 +1,1230 @@
+<Window x:Class="TiaSclStudio.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:TiaSclStudio.App"
+        Title="TIA SCL Studio"
+        Width="1580"
+        Height="920"
+        MinWidth="1220"
+        MinHeight="720"
+        WindowStartupLocation="CenterScreen"
+        Loaded="AutoLayoutWindow_Loaded"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        KeyDown="Window_KeyDown">
+    <Window.CommandBindings>
+        <CommandBinding Command="{x:Static local:MainWindow.AutoLayoutCommand}"
+                        CanExecute="AutoLayoutCommand_CanExecute"
+                        Executed="AutoLayoutCommand_Executed" />
+    </Window.CommandBindings>
+    <Window.InputBindings>
+        <KeyBinding Key="L"
+                    Modifiers="Control"
+                    Command="{x:Static local:MainWindow.AutoLayoutCommand}" />
+    </Window.InputBindings>
+    <Grid Background="{StaticResource WindowBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="66" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="188" />
+            <RowDefinition Height="29" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="#101720"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid Margin="18,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="38"
+                            Height="38"
+                            Margin="0,0,11,0"
+                            Background="{StaticResource AccentMutedBrush}"
+                            BorderBrush="{StaticResource AccentBrush}"
+                            BorderThickness="1"
+                            CornerRadius="5">
+                        <TextBlock Text="S7"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   FontFamily="Consolas"
+                                   FontSize="15"
+                                   FontWeight="Bold" />
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="TIA SCL STUDIO"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}" />
+                        <TextBlock x:Name="HeaderModeText"
+                                   Text="VISUAL CALL SHEET · OFFLINE MODE"
+                                   Margin="0,3,0,0"
+                                   FontSize="9"
+                                   Foreground="{StaticResource TextMutedBrush}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <Border Grid.Column="1"
+                        Width="1"
+                        Height="36"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Background="{StaticResource BorderBrush}" />
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="Создать демо"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            x:Name="CreateDemoButton"
+                            Click="CreateDemo_Click" />
+                    <Button Content="Проверить / обновить SCL"
+                            Style="{StaticResource ActionButtonStyle}"
+                            x:Name="ValidateProjectButton"
+                            Click="Validate_Click" />
+                    <Button Content="Сохранить"
+                            Style="{StaticResource ActionButtonStyle}"
+                            x:Name="SaveProjectButton"
+                            Click="Save_Click" />
+                    <Button Content="Открыть"
+                            Style="{StaticResource ActionButtonStyle}"
+                            x:Name="OpenProjectButton"
+                            Click="Open_Click" />
+                    <Button x:Name="OnlineWorkflowButton"
+                            Content="TIA Online"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            Click="OnlineWorkflow_Click" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Right">
+                    <TextBlock x:Name="HeaderProjectNameText"
+                               HorizontalAlignment="Right"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}"
+                               Text="Demo_Valve_Control" />
+                    <TextBlock x:Name="HeaderProjectStateText"
+                               Margin="0,3,0,0"
+                               HorizontalAlignment="Right"
+                               FontFamily="Consolas"
+                               FontSize="10"
+                               Foreground="{StaticResource SuccessBrush}"
+                               Text="● MODEL READY" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid x:Name="EditorWorkspace" Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="270" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="430" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Style="{StaticResource PanelBorderStyle}"
+                    BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="53" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Padding="16,0"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,0,0,1">
+                        <Grid>
+                            <TextBlock Text="БИБЛИОТЕКА БЛОКОВ"
+                                       Style="{StaticResource SectionTitleStyle}"
+                                       VerticalAlignment="Center" />
+                            <Border HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Padding="7,3"
+                                    Background="#182631"
+                                    BorderBrush="#294150"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <TextBlock x:Name="LibraryCountText"
+                                           FontFamily="Consolas"
+                                           FontSize="10"
+                                           Foreground="{StaticResource AccentBrush}"
+                                           Text="0" />
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <ListBox x:Name="LibraryList"
+                             Grid.Row="1"
+                             Margin="10"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             SelectionChanged="LibraryList_SelectionChanged"
+                             MouseDoubleClick="LibraryList_MouseDoubleClick"
+                             PreviewMouseLeftButtonDown="LibraryList_PreviewMouseLeftButtonDown"
+                             PreviewMouseMove="LibraryList_PreviewMouseMove"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,0,0,8" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Card"
+                                                    Padding="12"
+                                                    Background="{StaticResource PanelAltBrush}"
+                                                    BorderBrush="{StaticResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="5">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
+                                                    <Setter TargetName="Card" Property="Background" Value="{StaticResource SurfaceBrush}" />
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                    <Setter TargetName="Card" Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Border x:Name="LibraryKindSurface"
+                                            Grid.RowSpan="3"
+                                            Margin="-12"
+                                            Background="#30142C3F"
+                                            CornerRadius="5"
+                                            IsHitTestVisible="False" />
+                                    <Border x:Name="LibraryKindRail"
+                                            Grid.RowSpan="3"
+                                            Width="4"
+                                            Margin="-12"
+                                            HorizontalAlignment="Left"
+                                            Background="#58C7F3"
+                                            CornerRadius="5,0,0,5"
+                                            IsHitTestVisible="False" />
+                                    <Grid>
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontFamily="Consolas"
+                                                   FontSize="13"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextBrush}" />
+                                        <Border x:Name="LibraryKindBadge"
+                                                HorizontalAlignment="Right"
+                                                Padding="6,2"
+                                                Background="#21455C"
+                                                BorderBrush="#58C7F3"
+                                                BorderThickness="1"
+                                                CornerRadius="2">
+                                            <TextBlock x:Name="LibraryKindText"
+                                                       Text="FB | STATE"
+                                                       FontFamily="Consolas"
+                                                       FontSize="9"
+                                                       FontWeight="Bold"
+                                                       Foreground="#58C7F3" />
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,8"
+                                               Text="{Binding Description}"
+                                               TextWrapping="Wrap"
+                                               FontSize="11"
+                                               LineHeight="16"
+                                               Foreground="{StaticResource TextMutedBrush}" />
+                                    <StackPanel Grid.Row="2" Orientation="Horizontal">
+                                        <TextBlock Text="ИНТЕРФЕЙС "
+                                                   FontSize="9"
+                                                   Foreground="{StaticResource TextDimBrush}" />
+                                        <TextBlock Text="{Binding Interface.Count}"
+                                                   FontFamily="Consolas"
+                                                   FontSize="10"
+                                                   Foreground="{StaticResource SuccessBrush}" />
+                                        <TextBlock Text=" ПИНОВ"
+                                                   FontSize="9"
+                                                   Foreground="{StaticResource TextDimBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Kind}" Value="Function">
+                                        <Setter TargetName="LibraryKindSurface" Property="Background" Value="#302B1A3D" />
+                                        <Setter TargetName="LibraryKindRail" Property="Background" Value="#C28CFF" />
+                                        <Setter TargetName="LibraryKindBadge" Property="Background" Value="#352349" />
+                                        <Setter TargetName="LibraryKindBadge" Property="BorderBrush" Value="#C28CFF" />
+                                        <Setter TargetName="LibraryKindBadge" Property="CornerRadius" Value="10" />
+                                        <Setter TargetName="LibraryKindText" Property="Text" Value="FC | FUNC" />
+                                        <Setter TargetName="LibraryKindText" Property="Foreground" Value="#C28CFF" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <Border Grid.Row="2"
+                            Padding="12"
+                            Background="#0F161E"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,1,0,0">
+                        <StackPanel>
+                            <UniformGrid Columns="2">
+                                <Button Content="Новый блок"
+                                        Margin="0,0,5,0"
+                                        Padding="8,8"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Click="NewBlock_Click" />
+                                <Button x:Name="EditBlockButton"
+                                        Content="Редактировать"
+                                        Margin="5,0,0,0"
+                                        Padding="8,8"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Click="EditSelectedBlock_Click" />
+                            </UniformGrid>
+                            <Button x:Name="AddSelectedBlockButton"
+                                    Content="＋ Добавить выбранный на лист"
+                                    Margin="0,8,0,0"
+                                    Padding="8,8"
+                                    HorizontalAlignment="Stretch"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    Click="AddSelectedBlockToSheet_Click" />
+                            <Button x:Name="DeleteBlockButton"
+                                    Content="Удалить выбранный блок"
+                                    Margin="0,8,0,0"
+                                    Padding="8,8"
+                                    HorizontalAlignment="Stretch"
+                                    Style="{StaticResource ActionButtonStyle}"
+                                    Click="DeleteSelectedBlock_Click" />
+                            <TextBlock Margin="2,12,2,5"
+                                       Text="СИГНАЛЫ И КОНСТАНТЫ"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <UniformGrid Columns="3">
+                                <Button x:Name="TagSourcePaletteButton"
+                                        Content="Тег →"
+                                        Tag="Source"
+                                        Margin="0,0,4,0"
+                                        Padding="5,7"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Создать Source-терминал: PLC-тег читает значение в схему"
+                                        Click="AddTagNode_Click" />
+                                <Button x:Name="TagSinkPaletteButton"
+                                        Content="→ Тег"
+                                        Tag="Sink"
+                                        Margin="2,0,2,0"
+                                        Padding="5,7"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Создать Sink-терминал: схема записывает значение в PLC-тег"
+                                        Click="AddTagNode_Click" />
+                                <Button x:Name="ConstantPaletteButton"
+                                        Content="CONST"
+                                        Margin="4,0,0,0"
+                                        Padding="5,7"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Добавить типизированную SCL-константу"
+                                        Click="AddConstantNode_Click" />
+                            </UniformGrid>
+                            <TextBlock Margin="2,12,2,5"
+                                       Text="ЛОГИКА И ЗАМЕТКИ"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <UniformGrid Columns="3">
+                                <Button x:Name="LogicPaletteAndButton"
+                                        Content="AND"
+                                        Tag="And"
+                                        Margin="0,0,4,4"
+                                        Padding="5,6"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Click="AddLogicNode_Click" />
+                                <Button Content="OR"
+                                        Tag="Or"
+                                        Margin="2,0,2,4"
+                                        Padding="5,6"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Click="AddLogicNode_Click" />
+                                <Button Content="NOT"
+                                        Tag="Not"
+                                        Margin="4,0,0,4"
+                                        Padding="5,6"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Click="AddLogicNode_Click" />
+                                <Button Content="&gt; Int"
+                                        Tag="GreaterThan"
+                                        Margin="0,2,4,0"
+                                        Padding="5,6"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Сравнение; тип операндов меняется двойным кликом"
+                                        Click="AddLogicNode_Click" />
+                                <Button Content="&lt; Int"
+                                        Tag="LessThan"
+                                        Margin="2,2,2,0"
+                                        Padding="5,6"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Сравнение; тип операндов меняется двойным кликом"
+                                        Click="AddLogicNode_Click" />
+                                <Button Content="= Int"
+                                        Tag="Equal"
+                                        Margin="4,2,0,0"
+                                        Padding="5,6"
+                                        FontFamily="Consolas"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Сравнение; тип операндов меняется двойным кликом"
+                                        Click="AddLogicNode_Click" />
+                            </UniformGrid>
+                            <Button x:Name="NotePaletteButton"
+                                    Content="＋ Заметка"
+                                    Margin="0,8,0,0"
+                                    Padding="8,7"
+                                    HorizontalAlignment="Stretch"
+                                    Style="{StaticResource ActionButtonStyle}"
+                                    Click="AddNoteNode_Click" />
+                            <TextBlock Margin="2,10,2,0"
+                                       Text="Перетащите блок на лист или нажмите «Добавить». Двойной клик открывает свойства. Рамка: потяните по пустому полю. Панорама: средняя кнопка или Space+ЛКМ. Delete удаляет выбранное."
+                                       TextWrapping="Wrap"
+                                       FontSize="10"
+                                       LineHeight="15"
+                                       Foreground="{StaticResource TextDimBrush}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="1"
+                    Background="#0A1016"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="72" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Border x:Name="DiagramHeaderBorder"
+                            Grid.Row="0"
+                            Padding="10,0"
+                            Background="#101820"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,0,0,1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="33" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid x:Name="DiagramSheetBar"
+                                  Grid.Row="0"
+                                  Grid.ColumnSpan="2"
+                                  VerticalAlignment="Center"
+                                  ClipToBounds="True">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="170" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="ЛИСТ ВЫЗОВОВ"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Grid.Column="1"
+                                           Text="  /  "
+                                           Foreground="{StaticResource TextDimBrush}" />
+                                <TextBlock x:Name="SheetNameText"
+                                           Grid.Column="2"
+                                           Visibility="Collapsed"
+                                           FontFamily="Consolas"
+                                           FontSize="11"
+                                           Foreground="{StaticResource TextBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Text="FC_CallUnits" />
+                                <ComboBox x:Name="SheetSelector"
+                                          Grid.Column="2"
+                                          Height="27"
+                                          Margin="0,0,5,0"
+                                          VerticalAlignment="Center"
+                                          DisplayMemberPath="Name"
+                                          FontFamily="Consolas"
+                                          FontSize="10"
+                                          Style="{StaticResource DarkComboBoxStyle}"
+                                          ToolTip="Активный лист вызовов"
+                                          SelectionChanged="SheetSelector_SelectionChanged" />
+                                <Button x:Name="NewSheetButton"
+                                        Grid.Column="3"
+                                        Width="27"
+                                        Height="27"
+                                        Margin="0,0,3,0"
+                                        Padding="0"
+                                        Content="+"
+                                        FontSize="14"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Создать новый пустой лист FC"
+                                        Click="NewSheet_Click" />
+                                <Button x:Name="RenameSheetButton"
+                                        Grid.Column="4"
+                                        Width="27"
+                                        Height="27"
+                                        Margin="0,0,3,0"
+                                        Padding="0"
+                                        Content="✎"
+                                        FontSize="13"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Переименовать активный лист"
+                                        Click="RenameSheet_Click" />
+                                <Button x:Name="DeleteSheetButton"
+                                        Grid.Column="5"
+                                        Width="27"
+                                        Height="27"
+                                        Margin="0,0,6,0"
+                                        Padding="0"
+                                        Content="×"
+                                        FontSize="15"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Удалить активный лист"
+                                        Click="DeleteSheet_Click" />
+                                <Border Grid.Column="6"
+                                        MinWidth="24"
+                                        Padding="6,2"
+                                        VerticalAlignment="Center"
+                                        Background="#182631"
+                                        BorderBrush="#294150"
+                                        BorderThickness="1"
+                                        CornerRadius="9">
+                                    <TextBlock x:Name="SheetCountText"
+                                               HorizontalAlignment="Center"
+                                               FontFamily="Consolas"
+                                               FontSize="9"
+                                               Foreground="{StaticResource AccentBrush}"
+                                               Text="1" />
+                                </Border>
+                                <StackPanel Grid.Column="7"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Orientation="Horizontal">
+                                    <Button x:Name="UndoButton"
+                                            Width="31"
+                                            Height="29"
+                                            Margin="0,0,3,0"
+                                            Padding="0"
+                                            Content="↶"
+                                            FontSize="16"
+                                            Style="{StaticResource ActionButtonStyle}"
+                                            ToolTip="Отменить (Ctrl+Z)"
+                                            Click="Undo_Click" />
+                                    <Button x:Name="RedoButton"
+                                            Width="31"
+                                            Height="29"
+                                            Margin="0"
+                                            Padding="0"
+                                            Content="↷"
+                                            FontSize="16"
+                                            Style="{StaticResource ActionButtonStyle}"
+                                            ToolTip="Повторить (Ctrl+Y)"
+                                            Click="Redo_Click" />
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel x:Name="DiagramCommandBar"
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        Orientation="Horizontal">
+                                <Button x:Name="AddGroupButton"
+                                        Width="49"
+                                        Height="29"
+                                        Margin="0,0,3,0"
+                                        Padding="0"
+                                        Content="＋ Обл."
+                                        FontSize="10"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Создать область вокруг выбранных узлов; без выделения — пустую область"
+                                        Click="AddGroup_Click" />
+                                <Button x:Name="UngroupButton"
+                                        Width="49"
+                                        Height="29"
+                                        Margin="0,0,6,0"
+                                        Padding="0"
+                                        Content="− Обл."
+                                        FontSize="10"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Удалить выбранную область, сохранив узлы и провода"
+                                        Click="Ungroup_Click" />
+                                <Button x:Name="DeleteSelectionButton"
+                                        Width="52"
+                                        Height="29"
+                                        Margin="0,0,6,0"
+                                        Padding="0"
+                                        Content="Удал."
+                                        FontSize="10"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Удалить выбранные узлы, провод или расформировать область (Delete)"
+                                        Click="DeleteSelection_Click" />
+                                <Button x:Name="AutoLayoutButton"
+                                        Width="43"
+                                        Height="29"
+                                        Margin="0,0,5,0"
+                                        Padding="0"
+                                        Content="Авто"
+                                        FontSize="10"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Автоматически разложить активный лист и показать его целиком (Ctrl+L)"
+                                        Command="{x:Static local:MainWindow.AutoLayoutCommand}" />
+                                <Button x:Name="FitAllButton"
+                                        Width="39"
+                                        Height="29"
+                                        Margin="0,0,2,0"
+                                        Padding="0"
+                                        Content="Всё"
+                                        FontSize="10"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Показать всю схему (Ctrl+0)"
+                                        Click="FitAll_Click" />
+                                <Button x:Name="FitSelectionButton"
+                                        Width="48"
+                                        Height="29"
+                                        Margin="0,0,5,0"
+                                        Padding="0"
+                                        Content="Выбор"
+                                        FontSize="10"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Показать выделенные узлы, область или соединение (Ctrl+Shift+0)"
+                                        Click="FitSelection_Click" />
+                                <Button x:Name="ZoomOutButton"
+                                        Width="29"
+                                        Height="29"
+                                        Margin="0,0,2,0"
+                                        Padding="0"
+                                        Content="−"
+                                        FontSize="15"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Уменьшить масштаб"
+                                        Click="ZoomOut_Click" />
+                                <Button x:Name="ZoomResetButton"
+                                        Width="47"
+                                        Height="29"
+                                        Margin="0,0,2,0"
+                                        Padding="0"
+                                        Content="100%"
+                                        FontFamily="Consolas"
+                                        FontSize="10"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Масштаб 100%"
+                                        Click="ZoomReset_Click" />
+                                <Button x:Name="ZoomInButton"
+                                        Width="29"
+                                        Height="29"
+                                        Margin="0"
+                                        Padding="0"
+                                        Content="+"
+                                        FontSize="15"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        ToolTip="Увеличить масштаб"
+                                        Click="ZoomIn_Click" />
+                            </StackPanel>
+                            <TextBlock x:Name="ConnectionHintText"
+                                       Grid.Row="1"
+                                       Grid.Column="0"
+                                       Margin="0,1,0,0"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="10"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Text="Готово к созданию связей" />
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer x:Name="DiagramScrollViewer"
+                                  Grid.Row="1"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto"
+                                  CanContentScroll="False"
+                                  Background="#090E13"
+                                  PreviewMouseWheel="DiagramScrollViewer_PreviewMouseWheel"
+                                  PreviewMouseDown="DiagramScrollViewer_PreviewMouseDown"
+                                  PreviewMouseMove="DiagramScrollViewer_PreviewMouseMove"
+                                  PreviewMouseUp="DiagramScrollViewer_PreviewMouseUp"
+                                  LostMouseCapture="DiagramScrollViewer_LostMouseCapture">
+                        <Canvas x:Name="DiagramCanvas"
+                                Width="1180"
+                                Height="700"
+                                ClipToBounds="True"
+                                Focusable="True"
+                                AllowDrop="True"
+                                DragOver="DiagramCanvas_DragOver"
+                                Drop="DiagramCanvas_Drop"
+                                MouseLeftButtonDown="DiagramCanvas_MouseLeftButtonDown"
+                                MouseMove="DiagramCanvas_MouseMove"
+                                MouseLeftButtonUp="DiagramCanvas_MouseLeftButtonUp"
+                                LostMouseCapture="DiagramCanvas_LostMouseCapture">
+                            <Canvas.Background>
+                                <DrawingBrush TileMode="Tile"
+                                              Viewport="0,0,24,24"
+                                              ViewportUnits="Absolute">
+                                    <DrawingBrush.Drawing>
+                                        <GeometryDrawing Brush="#0D141B">
+                                            <GeometryDrawing.Pen>
+                                                <Pen Brush="#17232D" Thickness="0.7" />
+                                            </GeometryDrawing.Pen>
+                                            <GeometryDrawing.Geometry>
+                                                <GeometryGroup>
+                                                    <LineGeometry StartPoint="0,0" EndPoint="24,0" />
+                                                    <LineGeometry StartPoint="0,0" EndPoint="0,24" />
+                                                </GeometryGroup>
+                                            </GeometryDrawing.Geometry>
+                                        </GeometryDrawing>
+                                    </DrawingBrush.Drawing>
+                                </DrawingBrush>
+                            </Canvas.Background>
+                        </Canvas>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource PanelBorderStyle}" BorderThickness="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="53" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Padding="16,0"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="0,0,0,1">
+                        <Grid>
+                            <TextBlock Text="ПРЕДПРОСМОТР SCL"
+                                       Style="{StaticResource SectionTitleStyle}"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center">
+                                <Ellipse x:Name="CompilationStateDot"
+                                         Width="7"
+                                         Height="7"
+                                         Margin="0,0,7,0"
+                                         Fill="{StaticResource SuccessBrush}" />
+                                <TextBlock x:Name="CompilationStateText"
+                                           FontFamily="Consolas"
+                                           FontSize="10"
+                                           Foreground="{StaticResource SuccessBrush}"
+                                           Text="VALID" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <TextBox x:Name="SclPreviewTextBox"
+                             Grid.Row="1"
+                             Margin="0"
+                             Padding="16,14"
+                             IsReadOnly="True"
+                             AcceptsReturn="True"
+                             AcceptsTab="True"
+                             TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             Background="#0A1016"
+                             Foreground="#C9D8E2"
+                             BorderThickness="0"
+                             SelectionBrush="{StaticResource AccentMutedBrush}"
+                             CaretBrush="{StaticResource AccentBrush}"
+                             FontFamily="Consolas"
+                             FontSize="12"
+                             SpellCheck.IsEnabled="False" />
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2"
+                Background="#0F161E"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="38" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Padding="16,0" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="ДИАГНОСТИКА"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <Border Margin="10,0,0,0"
+                                    Padding="7,2"
+                                    Background="#1B2731"
+                                    CornerRadius="9">
+                                <TextBlock x:Name="DiagnosticsCountText"
+                                           FontFamily="Consolas"
+                                           FontSize="10"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           Text="0" />
+                            </Border>
+                        </StackPanel>
+                        <TextBlock x:Name="DiagnosticsSummaryText"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   FontSize="10"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   Text="Ошибок нет" />
+                    </Grid>
+                </Border>
+
+                <DataGrid x:Name="DiagnosticsGrid"
+                          Grid.Row="1"
+                          Style="{StaticResource DarkDataGridStyle}"
+                          AutoGenerateColumns="False"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          SelectionUnit="FullRow">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="УРОВЕНЬ" Width="105">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Severity}"
+                                               FontFamily="Consolas"
+                                               FontSize="10"
+                                               FontWeight="SemiBold">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Severity}" Value="ERROR">
+                                                        <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Severity}" Value="WARNING">
+                                                        <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Severity}" Value="INFO">
+                                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="КОД" Width="170">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Code}"
+                                               ToolTip="{Binding Code}"
+                                               FontFamily="Consolas"
+                                               Foreground="{StaticResource TextMutedBrush}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="СООБЩЕНИЕ"
+                                            Width="*"
+                                            Binding="{Binding Message}"
+                                            Foreground="{StaticResource TextBrush}" />
+                        <DataGridTextColumn Header="ОБЪЕКТ"
+                                            Width="190"
+                                            Binding="{Binding Context}"
+                                            FontFamily="Consolas"
+                                            Foreground="{StaticResource TextDimBrush}" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3" Background="#0A0F14" BorderBrush="#1E2A34" BorderThickness="0,1,0,0">
+            <Grid Margin="13,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusText"
+                           VerticalAlignment="Center"
+                           FontSize="10"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           Text="Готово" />
+                <TextBlock x:Name="RuntimeStatusText"
+                           Grid.Column="1"
+                           Margin="12,0"
+                           VerticalAlignment="Center"
+                           FontFamily="Consolas"
+                           FontSize="9"
+                           Foreground="{StaticResource TextDimBrush}"
+                           Text="NET48 · X64 · OFFLINE" />
+                <TextBlock x:Name="ProjectPathText"
+                           Grid.Column="2"
+                           MaxWidth="430"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           FontSize="10"
+                           Foreground="{StaticResource TextDimBrush}"
+                           Text="Проект не сохранён" />
+            </Grid>
+        </Border>
+
+        <!-- Online export is deliberately opened by the user. It never connects on startup. -->
+        <Border x:Name="OnlinePanel"
+                Grid.Row="1"
+                Width="600"
+                HorizontalAlignment="Right"
+                Visibility="Collapsed"
+                Panel.ZIndex="200"
+                Background="#111922"
+                BorderBrush="{StaticResource BorderStrongBrush}"
+                BorderThickness="1,0,0,1">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="22" Direction="180" ShadowDepth="8" Opacity="0.65" Color="#000000" />
+            </Border.Effect>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="54" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="58" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0"
+                        Padding="18,0"
+                        Background="#0F171F"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="0,0,0,1">
+                    <Grid>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="TIA OPENNESS · БЕЗОПАСНАЯ ВЫГРУЗКА"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}" />
+                            <TextBlock Text="Подключение → dry-run → подтверждение → экспорт"
+                                       Margin="0,3,0,0"
+                                       FontSize="10"
+                                       Foreground="{StaticResource TextMutedBrush}" />
+                        </StackPanel>
+                        <Button Content="✕"
+                                Width="32"
+                                Height="30"
+                                Margin="0"
+                                Padding="0"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Click="CloseOnlinePanel_Click" />
+                    </Grid>
+                </Border>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="OnlineFormPanel" Margin="18,16,18,18">
+                        <Border Padding="13"
+                                Background="{StaticResource PanelAltBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="5">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Ellipse x:Name="OnlineStatusDot"
+                                         Width="9"
+                                         Height="9"
+                                         Margin="0,0,11,0"
+                                         VerticalAlignment="Center"
+                                         Fill="{StaticResource TextDimBrush}" />
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock x:Name="OnlineStatusText"
+                                               Text="Не подключено"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextBrush}" />
+                                    <TextBlock x:Name="OnlineApiText"
+                                               Margin="0,3,0,0"
+                                               Text="Сначала выберите проект TIA и выполните подключение"
+                                               TextWrapping="Wrap"
+                                               FontFamily="Consolas"
+                                               FontSize="10"
+                                               Foreground="{StaticResource TextMutedBrush}" />
+                                </StackPanel>
+                                <Button x:Name="ConnectTiaButton"
+                                        Grid.Column="2"
+                                        Content="Подключить"
+                                        Margin="12,0,0,0"
+                                        Style="{StaticResource ActionButtonStyle}"
+                                        Click="ConnectTia_Click" />
+                            </Grid>
+                        </Border>
+
+                        <TextBlock Margin="0,17,0,7"
+                                   Text="ПРОЕКТ TIA PORTAL"
+                                   Style="{StaticResource SectionTitleStyle}" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="TiaProjectPathTextBox"
+                                     Height="34"
+                                     Padding="10,6"
+                                     VerticalContentAlignment="Center"
+                                     Background="#0C131A"
+                                     Foreground="{StaticResource TextBrush}"
+                                     BorderBrush="{StaticResource BorderStrongBrush}"
+                                     BorderThickness="1"
+                                     FontFamily="Consolas"
+                                     FontSize="11"
+                                     TextChanged="OnlineTarget_Changed" />
+                            <Button Grid.Column="1"
+                                    Content="Обзор…"
+                                    Margin="8,0,0,0"
+                                    Style="{StaticResource ActionButtonStyle}"
+                                    Click="BrowseTiaProject_Click" />
+                        </Grid>
+
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="190" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Margin="0,0,0,7"
+                                           Text="РЕЖИМ ПОДКЛЮЧЕНИЯ"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <ComboBox x:Name="TiaConnectionModeComboBox"
+                                          Height="34"
+                                          SelectedIndex="0"
+                                          Style="{StaticResource DarkComboBoxStyle}"
+                                          SelectionChanged="OnlineTarget_Changed">
+                                    <ComboBoxItem Content="К запущенному TIA" Tag="AttachToRunning" />
+                                    <ComboBoxItem Content="Запустить с интерфейсом" Tag="StartWithUserInterface" />
+                                    <ComboBoxItem Content="Запустить без интерфейса" Tag="StartWithoutUserInterface" />
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Margin="0,0,0,7"
+                                           Text="PROCESS ID (НЕОБЯЗАТЕЛЬНО)"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBox x:Name="TiaProcessIdTextBox"
+                                         Height="34"
+                                         Padding="10,6"
+                                         VerticalContentAlignment="Center"
+                                         Background="#0C131A"
+                                         Foreground="{StaticResource TextBrush}"
+                                         BorderBrush="{StaticResource BorderStrongBrush}"
+                                         BorderThickness="1"
+                                         FontFamily="Consolas"
+                                         FontSize="11"
+                                         ToolTip="Оставьте пустым для автоматического выбора единственного процесса"
+                                         TextChanged="OnlineTarget_Changed" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Margin="0,0,0,7"
+                                           Text="ИМЯ УСТРОЙСТВА / PLC"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBox x:Name="TiaDeviceNameTextBox"
+                                         Height="34"
+                                         Padding="10,6"
+                                         VerticalContentAlignment="Center"
+                                         Background="#0C131A"
+                                         Foreground="{StaticResource TextBrush}"
+                                         BorderBrush="{StaticResource BorderStrongBrush}"
+                                         BorderThickness="1"
+                                         FontFamily="Consolas"
+                                         FontSize="11"
+                                         ToolTip="Необязательно, если в проекте ровно один PLC"
+                                         TextChanged="OnlineTarget_Changed" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Margin="0,0,0,7"
+                                           Text="ИМЯ PLC SOFTWARE"
+                                           Style="{StaticResource SectionTitleStyle}" />
+                                <TextBox x:Name="TiaSoftwareNameTextBox"
+                                         Height="34"
+                                         Padding="10,6"
+                                         VerticalContentAlignment="Center"
+                                         Background="#0C131A"
+                                         Foreground="{StaticResource TextBrush}"
+                                         BorderBrush="{StaticResource BorderStrongBrush}"
+                                         BorderThickness="1"
+                                         FontFamily="Consolas"
+                                         FontSize="11"
+                                         ToolTip="Необязательно, если у устройства одно PLC Software"
+                                         TextChanged="OnlineTarget_Changed" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="CompileAfterImportCheckBox"
+                                      VerticalAlignment="Center"
+                                      IsChecked="True"
+                                      Foreground="{StaticResource TextBrush}"
+                                      Content="Компилировать после импорта"
+                                      Checked="OnlineTarget_Changed"
+                                      Unchecked="OnlineTarget_Changed" />
+                            <TextBlock Grid.Column="1"
+                                       VerticalAlignment="Center"
+                                       FontSize="10"
+                                       Foreground="{StaticResource WarningBrush}"
+                                       Text="OB1 не изменяется" />
+                        </Grid>
+
+                        <WrapPanel Margin="0,10,0,0">
+                            <CheckBox x:Name="SaveTiaProjectCheckBox"
+                                      Margin="0,0,18,7"
+                                      VerticalAlignment="Center"
+                                      Foreground="{StaticResource TextBrush}"
+                                      Content="Сохранить проект TIA после экспорта"
+                                      Checked="OnlineTarget_Changed"
+                                      Unchecked="OnlineTarget_Changed" />
+                            <CheckBox x:Name="AllowTagUpdatesCheckBox"
+                                      Margin="0,0,18,7"
+                                      VerticalAlignment="Center"
+                                      Foreground="{StaticResource WarningBrush}"
+                                      Content="Разрешить обновление тегов"
+                                      Checked="OnlineTarget_Changed"
+                                      Unchecked="OnlineTarget_Changed" />
+                            <CheckBox x:Name="AllowOwnedOverwriteCheckBox"
+                                      Margin="0,0,0,7"
+                                      VerticalAlignment="Center"
+                                      Foreground="{StaticResource WarningBrush}"
+                                      Content="Разрешить перезапись своих блоков"
+                                      Checked="OnlineTarget_Changed"
+                                      Unchecked="OnlineTarget_Changed" />
+                        </WrapPanel>
+
+                        <Border Margin="0,17,0,0"
+                                Padding="13"
+                                Background="#0C151C"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="5">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid>
+                                    <TextBlock Text="DRY-RUN · ПЛАН ИЗМЕНЕНИЙ"
+                                               Style="{StaticResource SectionTitleStyle}" />
+                                    <Button x:Name="PreviewExportButton"
+                                            HorizontalAlignment="Right"
+                                            Content="Проверить план"
+                                            Margin="0"
+                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            Click="PreviewExport_Click" />
+                                </Grid>
+                                <TextBlock x:Name="ExportPreviewSummaryText"
+                                           Grid.Row="1"
+                                           Margin="0,12,0,10"
+                                           Text="Экспорт заблокирован до успешного dry-run."
+                                           TextWrapping="Wrap"
+                                           FontSize="11"
+                                           LineHeight="16"
+                                           Foreground="{StaticResource TextMutedBrush}" />
+                                <DataGrid x:Name="ExportOperationsGrid"
+                                          Grid.Row="2"
+                                          Height="164"
+                                          Style="{StaticResource DarkDataGridStyle}"
+                                          AutoGenerateColumns="False"
+                                          SelectionUnit="FullRow">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="#" Width="38" Binding="{Binding Order}" />
+                                        <DataGridTextColumn Header="ОПЕРАЦИЯ" Width="115" Binding="{Binding Kind}" />
+                                        <DataGridTextColumn Header="ЦЕЛЬ" Width="170" Binding="{Binding Target}" />
+                                        <DataGridTextColumn Header="ОПИСАНИЕ" Width="*" Binding="{Binding Description}" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </Border>
+
+                        <Border x:Name="CollisionWarningPanel"
+                                Margin="0,12,0,0"
+                                Padding="12"
+                                Visibility="Collapsed"
+                                Background="#332819"
+                                BorderBrush="{StaticResource WarningBrush}"
+                                BorderThickness="1"
+                                CornerRadius="5">
+                            <StackPanel>
+                                <TextBlock Text="⚠ ОБНАРУЖЕНЫ КОЛЛИЗИИ"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource WarningBrush}" />
+                                <TextBlock x:Name="CollisionSummaryText"
+                                           Margin="0,6,0,0"
+                                           TextWrapping="Wrap"
+                                           FontSize="10"
+                                           LineHeight="15"
+                                           Foreground="{StaticResource TextBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Border Grid.Row="2"
+                        Padding="18,9"
+                        Background="#0D141B"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="0,1,0,0">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <ProgressBar x:Name="OnlineBusyProgress"
+                                         Width="110"
+                                         Height="4"
+                                         Margin="0,0,10,0"
+                                         IsIndeterminate="True"
+                                         Visibility="Collapsed" />
+                            <TextBlock x:Name="OnlineBusyText"
+                                       VerticalAlignment="Center"
+                                       FontSize="10"
+                                       Foreground="{StaticResource TextMutedBrush}" />
+                        </StackPanel>
+                        <Button x:Name="ConfirmExportButton"
+                                HorizontalAlignment="Right"
+                                Content="Подтвердить и выгрузить"
+                                IsEnabled="False"
+                                Margin="0"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Click="ConfirmExport_Click" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

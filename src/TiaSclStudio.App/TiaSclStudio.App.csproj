@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.props" Condition="Exists('$(MSBuildToolsPath)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{8641B279-7D6B-4D70-9BA0-1916AC587210}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>TiaSclStudio.App</RootNamespace>
+    <AssemblyName>TiaSclStudio.App</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <LangVersion>7.3</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Xml" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+  </ItemGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </ApplicationDefinition>
+    <Page Include="MainWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="BlockEditorWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="NodePropertiesWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="SheetNameWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="LogicNodeEditorWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="NoteEditorWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="GroupEditorWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="ConstantNodeCreateWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="TagNodeCreateWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="PlcAddressEditorControl.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Compile Include="App.xaml.cs">
+      <DependentUpon>App.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.xaml.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.Online.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.BlockEditor.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.CanvasEditing.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.AutoLayout.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.SheetNavigation.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.NodePalette.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="MainWindow.GroupEditing.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="BlockEditorWindow.xaml.cs">
+      <DependentUpon>BlockEditorWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="BlockLibraryEditorLogic.cs" />
+    <Compile Include="NodePropertiesWindow.xaml.cs">
+      <DependentUpon>NodePropertiesWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="NodeEditingLogic.cs" />
+    <Compile Include="NodeCreationLogic.cs" />
+    <Compile Include="SheetNameWindow.xaml.cs">
+      <DependentUpon>SheetNameWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="SheetEditingLogic.cs" />
+    <Compile Include="SheetAutoLayoutLogic.cs" />
+    <Compile Include="LogicNodeEditorWindow.xaml.cs">
+      <DependentUpon>LogicNodeEditorWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="LogicNodeEditingLogic.cs" />
+    <Compile Include="GroupEditingLogic.cs" />
+    <Compile Include="HardwareIoSelectionPolicy.cs" />
+    <Compile Include="NoteEditorWindow.xaml.cs">
+      <DependentUpon>NoteEditorWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="NoteEditingLogic.cs" />
+    <Compile Include="GroupEditorWindow.xaml.cs">
+      <DependentUpon>GroupEditorWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="ConstantNodeCreateWindow.xaml.cs">
+      <DependentUpon>ConstantNodeCreateWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="TagNodeCreateWindow.xaml.cs">
+      <DependentUpon>TagNodeCreateWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="PlcAddressEditorControl.xaml.cs">
+      <DependentUpon>PlcAddressEditorControl.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="TiaGatewayWorker.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <None Include="App.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TiaSclStudio.Core\TiaSclStudio.Core.csproj">
+      <Project>{E461A99A-E788-4F37-86D6-9BB44484215C}</Project>
+      <Name>TiaSclStudio.Core</Name>
+      <SetPlatform>Platform=AnyCPU</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\TiaSclStudio.Diagram\TiaSclStudio.Diagram.csproj">
+      <Project>{B5814341-9D08-4C89-92CE-C942E1015DC3}</Project>
+      <Name>TiaSclStudio.Diagram</Name>
+      <SetPlatform>Platform=AnyCPU</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\TiaSclStudio.Openness\TiaSclStudio.Openness.csproj">
+      <Project>{7617E864-C75B-42BA-84E4-5A582858DD51}</Project>
+      <Name>TiaSclStudio.Openness</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+    </ProjectReference>
+    <ProjectReference Include="..\TiaSclStudio.Openness.Legacy.V17\TiaSclStudio.Openness.Legacy.V17.csproj">
+      <Project>{6A09541C-6556-487D-A0A8-194E15FE055F}</Project>
+      <Name>TiaSclStudio.Openness.Legacy.V17</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

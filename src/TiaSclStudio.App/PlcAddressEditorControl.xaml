@@ -1,0 +1,122 @@
+<UserControl x:Class="TiaSclStudio.App.PlcAddressEditorControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="AddressLabelStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+        </Style>
+        <Style x:Key="AddressTextBoxStyle" TargetType="TextBox">
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="FontFamily" Value="Consolas" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="SelectionBrush" Value="{StaticResource AccentMutedBrush}" />
+            <Setter Property="Background" Value="#0C131A" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.1*" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="СЕМЕЙСТВО CPU" Style="{StaticResource AddressLabelStyle}" />
+            <ComboBox x:Name="CpuComboBox"
+                      Grid.Row="1"
+                      MinHeight="36"
+                      Style="{StaticResource DarkComboBoxStyle}"
+                      SelectionChanged="Cpu_Changed" />
+
+            <TextBlock Grid.Column="2" Text="СИГНАЛ" Style="{StaticResource AddressLabelStyle}" />
+            <ComboBox x:Name="SignalComboBox"
+                      Grid.Row="1"
+                      Grid.Column="2"
+                      MinHeight="36"
+                      Style="{StaticResource DarkComboBoxStyle}"
+                      SelectionChanged="Signal_Changed" />
+
+            <TextBlock Grid.Column="4" Text="ТИП ДАННЫХ" Style="{StaticResource AddressLabelStyle}" />
+            <ComboBox x:Name="DataTypeComboBox"
+                      Grid.Row="1"
+                      Grid.Column="4"
+                      MinHeight="36"
+                      FontFamily="Consolas"
+                      Style="{StaticResource DarkComboBoxStyle}"
+                      SelectionChanged="AddressPart_Changed" />
+        </Grid>
+
+        <StackPanel x:Name="ConfiguredChannelPanel" Margin="0,13,0,0" Visibility="Collapsed">
+            <TextBlock Text="КАНАЛ ИЗ АППАРАТНОЙ КОНФИГУРАЦИИ"
+                       Style="{StaticResource AddressLabelStyle}" />
+            <ComboBox x:Name="ConfiguredChannelComboBox"
+                      MinHeight="36"
+                      FontFamily="Consolas"
+                      Style="{StaticResource DarkComboBoxStyle}"
+                      SelectionChanged="ConfiguredChannel_Changed" />
+        </StackPanel>
+
+        <Grid x:Name="ManualAddressPanel" Margin="0,13,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="0.7*" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="1.35*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="СМЕЩЕНИЕ БАЙТА" Style="{StaticResource AddressLabelStyle}" />
+            <TextBox x:Name="ByteOffsetTextBox"
+                     Grid.Row="1"
+                     Style="{StaticResource AddressTextBoxStyle}"
+                     TextChanged="AddressPart_Changed" />
+
+            <TextBlock Grid.Column="2" Text="БИТ" Style="{StaticResource AddressLabelStyle}" />
+            <ComboBox x:Name="BitOffsetComboBox"
+                      Grid.Row="1"
+                      Grid.Column="2"
+                      MinHeight="36"
+                      FontFamily="Consolas"
+                      Style="{StaticResource DarkComboBoxStyle}"
+                      SelectionChanged="AddressPart_Changed" />
+
+            <TextBlock Grid.Column="4" Text="АДРЕС TIA" Style="{StaticResource AddressLabelStyle}" />
+            <TextBox x:Name="AddressPreviewTextBox"
+                     Grid.Row="1"
+                     Grid.Column="4"
+                     Style="{StaticResource AddressTextBoxStyle}"
+                     IsReadOnly="True"
+                     IsTabStop="False"
+                     Foreground="{StaticResource AccentBrush}"
+                     Background="#111A22" />
+        </Grid>
+
+        <Grid Margin="0,7,0,0">
+            <TextBlock x:Name="RangeHintText"
+                       FontSize="9"
+                       Foreground="{StaticResource TextDimBrush}" />
+            <TextBlock x:Name="AddressValidationText"
+                       HorizontalAlignment="Right"
+                       FontSize="9"
+                       Foreground="{StaticResource TextMutedBrush}" />
+        </Grid>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.props" Condition="Exists('$(MSBuildToolsPath)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{54485C52-6306-47E3-B3C8-5D1BC7970B8A}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TiaSclStudio.SelfTest</RootNamespace>
+    <AssemblyName>TiaSclStudio.SelfTest</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <LangVersion>7.3</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="WindowsBase" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TiaSclStudio.App\TiaSclStudio.App.csproj">
+      <Project>{8641B279-7D6B-4D70-9BA0-1916AC587210}</Project>
+      <Name>TiaSclStudio.App</Name>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+      <SetPlatform>Platform=x64</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Core\TiaSclStudio.Core.csproj">
+      <Project>{E461A99A-E788-4F37-86D6-9BB44484215C}</Project>
+      <Name>TiaSclStudio.Core</Name>
+      <SetPlatform>Platform=AnyCPU</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Diagram\TiaSclStudio.Diagram.csproj">
+      <Project>{B5814341-9D08-4C89-92CE-C942E1015DC3}</Project>
+      <Name>TiaSclStudio.Diagram</Name>
+      <SetPlatform>Platform=AnyCPU</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Openness\TiaSclStudio.Openness.csproj">
+      <Project>{7617E864-C75B-42BA-84E4-5A582858DD51}</Project>
+      <Name>TiaSclStudio.Openness</Name>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+      <SetPlatform>Platform=x64</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Openness.Legacy.V17\TiaSclStudio.Openness.Legacy.V17.csproj">
+      <Project>{6A09541C-6556-487D-A0A8-194E15FE055F}</Project>
+      <Name>TiaSclStudio.Openness.Legacy.V17</Name>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+      <SetPlatform>Platform=x64</SetPlatform>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

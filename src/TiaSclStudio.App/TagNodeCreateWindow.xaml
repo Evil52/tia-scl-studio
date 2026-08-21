@@ -1,0 +1,146 @@
+<Window x:Class="TiaSclStudio.App.TagNodeCreateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:TiaSclStudio.App"
+        Title="PLC-тег на схеме"
+        Width="780"
+        Height="690"
+        MinWidth="700"
+        MinHeight="610"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Grid Background="{StaticResource WindowBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Border Padding="20,15"
+                Background="#101720"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel>
+                    <TextBlock Text="PLC-ТЕГ НА СХЕМЕ"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Margin="0,4,0,0"
+                               Text="Можно создать новый PLC-тег или добавить ещё один терминал существующего."
+                               FontSize="10"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                </StackPanel>
+                <Border HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Padding="9,4"
+                        Background="{StaticResource AccentMutedBrush}"
+                        BorderBrush="{StaticResource AccentBrush}"
+                        BorderThickness="1"
+                        CornerRadius="3">
+                    <TextBlock x:Name="DirectionBadgeText"
+                               FontFamily="Consolas"
+                               FontSize="10"
+                               Foreground="{StaticResource AccentBrush}" />
+                </Border>
+            </Grid>
+        </Border>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20,18">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="NewTagRadioButton"
+                                 Content="Создать новый тег"
+                                 IsChecked="True"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Checked="Mode_Changed" />
+                    <RadioButton x:Name="ExistingTagRadioButton"
+                                 Margin="24,0,0,0"
+                                 Content="Использовать существующий"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Checked="Mode_Changed" />
+                </StackPanel>
+
+                <StackPanel x:Name="ExistingTagPanel" Margin="0,18,0,0" Visibility="Collapsed">
+                    <TextBlock Text="СУЩЕСТВУЮЩИЙ PLC-ТЕГ"
+                               Margin="0,0,0,7"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                    <ComboBox x:Name="ExistingTagComboBox"
+                              Height="38"
+                              DisplayMemberPath="Name"
+                              FontFamily="Consolas"
+                              Style="{StaticResource DarkComboBoxStyle}"
+                              SelectionChanged="NewTagField_Changed" />
+                    <TextBlock Margin="0,7,0,0"
+                               Text="Определение тега не изменяется; добавляется только новый Source/Sink-терминал."
+                               FontSize="9"
+                               Foreground="{StaticResource TextDimBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel x:Name="NewTagPanel" Margin="0,18,0,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="ИМЯ"
+                                   Margin="0,0,0,7"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBox x:Name="TagNameTextBox"
+                                 Grid.Row="1"
+                                 MinHeight="36"
+                                 Padding="10,7"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Background="#0C131A"
+                                 BorderBrush="{StaticResource BorderStrongBrush}"
+                                 TextChanged="NewTagField_Changed" />
+                    </Grid>
+                    <local:PlcAddressEditorControl x:Name="AddressEditor" Margin="0,15,0,0" />
+                    <TextBlock Margin="0,15,0,7"
+                               Text="КОММЕНТАРИЙ"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                    <TextBox x:Name="TagCommentTextBox"
+                             Height="86"
+                             Padding="10,8"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             Foreground="{StaticResource TextBrush}"
+                             Background="#0C131A"
+                             BorderBrush="{StaticResource BorderStrongBrush}"
+                             TextChanged="NewTagField_Changed" />
+                </StackPanel>
+                <TextBlock x:Name="ValidationText"
+                           Margin="0,13,0,0"
+                           FontSize="10"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           Text="Новый тег и его терминал добавляются одной атомарной операцией Undo/Redo."
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+        <Border Grid.Row="2"
+                Padding="18,13"
+                Background="#0B1218"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                <Button Content="Отмена"
+                        MinWidth="112"
+                        Style="{StaticResource ActionButtonStyle}"
+                        IsCancel="True" />
+                <Button x:Name="OkButton"
+                        Content="Добавить"
+                        MinWidth="112"
+                        Margin="0"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        IsDefault="True"
+                        Click="Ok_Click" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

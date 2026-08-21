@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    # The product is WPF on .NET Framework 4.8 and the end-to-end suite creates
+    # real windows, so this cannot move to a Linux runner.
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'NuGet.config') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: msbuild TiaSclStudio.sln -t:Restore -v:minimal -nologo
+
+      - name: Build
+        run: msbuild TiaSclStudio.sln -t:Rebuild -p:Configuration=Release -p:Platform=x64 -p:HasTiaOpennessV17=false -p:TreatWarningsAsErrors=true -v:minimal -nologo -m
+
+      - name: Test with coverage
+        shell: pwsh
+        run: .\build\Invoke-Tests.ps1 -Configuration Release -Coverage -NoBuild
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results/
+          retention-days: 14
+
+      - name: Publish application
+        uses: actions/upload-artifact@v4
+        with:
+          # GitHub-hosted runners do not contain Siemens.Engineering.dll, so
+          # this artifact deliberately contains the offline adapter stub.
+          name: TiaSclStudio-offline-stub-x64
+          path: |
+            src/TiaSclStudio.App/bin/x64/Release/*.exe
+            src/TiaSclStudio.App/bin/x64/Release/*.exe.config
+            src/TiaSclStudio.App/bin/x64/Release/*.dll
+          retention-days: 30
+
+  self-test:
+    name: Offline self-test
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build
+        run: |
+          msbuild TiaSclStudio.sln -t:Restore -v:minimal -nologo
+          msbuild TiaSclStudio.sln -t:Rebuild -p:Configuration=Release -p:Platform=x64 -p:HasTiaOpennessV17=false -p:TreatWarningsAsErrors=true -v:minimal -nologo -m
+
+      # The self-test is the acceptance check that the generated SCL is exactly
+      # what the reference project expects, byte for byte.
+      - name: Run the self-test executable
+        run: .\tools\selftest\bin\Release\TiaSclStudio.SelfTest.exe "${{ runner.temp }}\selftest"
+
+      - name: Run the WPF smoke script
+        run: .\tools\wpf-smoke.ps1 -ArtifactDirectory "src\TiaSclStudio.App\bin\x64\Release"
+        shell: pwsh
+
+  sonarqube:
+    name: SonarQube
+    runs-on: windows-2022
+    timeout-minutes: 60
+    # Analysis publishes to a server this workflow has to be able to reach, so
+    # it only runs when one is configured. A fork's pull request has no secrets
+    # and would otherwise fail on every push.
+    if: >-
+      vars.SONAR_HOST_URL != '' &&
+      (github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository)
+    needs: build-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sonar's new-code detection needs the history, not just the tip.
+          fetch-depth: 0
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Analyse
+        shell: pwsh
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+        run: |
+          if (-not $env:SONAR_TOKEN) {
+            throw 'SONAR_HOST_URL is configured, but SONAR_TOKEN is missing.'
+          }
+          .\build\Invoke-SonarQube.ps1 -Token $env:SONAR_TOKEN -HostUrl $env:SONAR_HOST_URL

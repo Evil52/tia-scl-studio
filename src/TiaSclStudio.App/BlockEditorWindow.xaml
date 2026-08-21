@@ -1,0 +1,268 @@
+<Window x:Class="TiaSclStudio.App.BlockEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Редактор блока"
+        Width="1120"
+        Height="790"
+        MinWidth="940"
+        MinHeight="660"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Window.Resources>
+        <Style x:Key="EditorLabelStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,5" />
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style x:Key="EditorTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="#0C131A" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="SelectionBrush" Value="{StaticResource AccentMutedBrush}" />
+        </Style>
+
+        <Style x:Key="GridEditingTextBoxStyle"
+               TargetType="TextBox"
+               BasedOn="{StaticResource EditorTextBoxStyle}">
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style x:Key="GridComboBoxStyle"
+               TargetType="ComboBox"
+               BasedOn="{StaticResource DarkComboBoxStyle}">
+            <Setter Property="Padding" Value="8,0,30,0" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style x:Key="EditorDataGridStyle"
+               TargetType="DataGrid"
+               BasedOn="{StaticResource DarkDataGridStyle}">
+            <Setter Property="IsReadOnly" Value="False" />
+            <Setter Property="SelectionUnit" Value="FullRow" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="{StaticResource WindowBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Padding="18,14"
+                Background="#101720"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel>
+                    <TextBlock x:Name="EditorTitleText"
+                               Text="РЕДАКТОР БЛОКА"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Margin="0,3,0,0"
+                               Text="Описание, интерфейс и тело SCL изменяются только после проверки и нажатия ОК."
+                               FontSize="10"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                </StackPanel>
+                <Border HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Padding="8,4"
+                        Background="{StaticResource AccentMutedBrush}"
+                        BorderBrush="{StaticResource AccentBrush}"
+                        BorderThickness="1"
+                        CornerRadius="3">
+                    <TextBlock x:Name="BlockIdText"
+                               FontFamily="Consolas"
+                               FontSize="9"
+                               Foreground="{StaticResource AccentBrush}" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="18,16">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="1.15*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="1.15*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="0.9*" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="ИМЯ БЛОКА" Style="{StaticResource EditorLabelStyle}" />
+                        <TextBox x:Name="NameTextBox" Style="{StaticResource EditorTextBoxStyle}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="ТИП" Style="{StaticResource EditorLabelStyle}" />
+                        <ComboBox x:Name="KindComboBox"
+                                  Height="31"
+                                  Style="{StaticResource DarkComboBoxStyle}"
+                                  SelectionChanged="KindComboBox_SelectionChanged">
+                            <ComboBoxItem Content="FB — Function Block" Tag="FB" />
+                            <ComboBoxItem Content="FC — Function" Tag="FC" />
+                        </ComboBox>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Text="ВОЗВРАЩАЕМЫЙ ТИП FC" Style="{StaticResource EditorLabelStyle}" />
+                        <TextBox x:Name="ReturnTypeTextBox"
+                                 Style="{StaticResource EditorTextBoxStyle}"
+                                 Text="Void" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="6">
+                        <TextBlock Text="ВЕРСИЯ" Style="{StaticResource EditorLabelStyle}" />
+                        <TextBox x:Name="VersionTextBox"
+                                 Style="{StaticResource EditorTextBoxStyle}"
+                                 Text="0.1" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid Margin="0,13,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="ОПИСАНИЕ" Style="{StaticResource EditorLabelStyle}" />
+                        <TextBox x:Name="DescriptionTextBox"
+                                 Height="58"
+                                 Style="{StaticResource EditorTextBoxStyle}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Bottom" Margin="0,0,0,5">
+                        <CheckBox x:Name="OptimizedAccessCheckBox"
+                                  Margin="0,0,0,9"
+                                  Content="Оптимизированный доступ"
+                                  Foreground="{StaticResource TextBrush}" />
+                        <CheckBox x:Name="ImportedInterfaceOnlyCheckBox"
+                                  Content="Только импортированный интерфейс"
+                                  Foreground="{StaticResource TextBrush}" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid Margin="0,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="ИНТЕРФЕЙС БЛОКА"
+                               Style="{StaticResource SectionTitleStyle}"
+                               VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="＋ Добавить"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Click="AddMember_Click" />
+                        <Button Content="Удалить"
+                                Style="{StaticResource ActionButtonStyle}"
+                                Click="DeleteMember_Click" />
+                        <Button Content="↑"
+                                Width="42"
+                                Padding="6,8"
+                                Style="{StaticResource ActionButtonStyle}"
+                                ToolTip="Переместить вверх"
+                                Click="MoveMemberUp_Click" />
+                        <Button Content="↓"
+                                Width="42"
+                                Padding="6,8"
+                                Margin="0"
+                                Style="{StaticResource ActionButtonStyle}"
+                                ToolTip="Переместить вниз"
+                                Click="MoveMemberDown_Click" />
+                    </StackPanel>
+                </Grid>
+
+                <DataGrid x:Name="InterfaceGrid"
+                          Height="238"
+                          Margin="0,8,0,0"
+                          Style="{StaticResource EditorDataGridStyle}"
+                          AutoGenerateColumns="False">
+                    <DataGrid.Columns>
+                        <DataGridComboBoxColumn x:Name="SectionColumn"
+                                                Header="SECTION"
+                                                Width="130"
+                                                SelectedItemBinding="{Binding Section, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                ElementStyle="{StaticResource GridComboBoxStyle}"
+                                                EditingElementStyle="{StaticResource GridComboBoxStyle}" />
+                        <DataGridTextColumn Header="NAME"
+                                            Width="155"
+                                            Binding="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            EditingElementStyle="{StaticResource GridEditingTextBoxStyle}" />
+                        <DataGridTextColumn Header="DATA TYPE"
+                                            Width="135"
+                                            Binding="{Binding DataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            EditingElementStyle="{StaticResource GridEditingTextBoxStyle}" />
+                        <DataGridTextColumn Header="INITIAL VALUE"
+                                            Width="150"
+                                            Binding="{Binding InitialValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            EditingElementStyle="{StaticResource GridEditingTextBoxStyle}" />
+                        <DataGridTextColumn Header="COMMENT"
+                                            Width="*"
+                                            Binding="{Binding Comment, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            EditingElementStyle="{StaticResource GridEditingTextBoxStyle}" />
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Margin="0,16,0,0"
+                           Text="ТЕЛО SCL"
+                           Style="{StaticResource SectionTitleStyle}" />
+                <TextBox x:Name="SclBodyTextBox"
+                         Height="180"
+                         Margin="0,8,0,0"
+                         Padding="10"
+                         Style="{StaticResource EditorTextBoxStyle}"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         TextWrapping="NoWrap"
+                         HorizontalScrollBarVisibility="Auto"
+                         VerticalScrollBarVisibility="Auto" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2"
+                Padding="18,11"
+                Background="#101720"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="ValidationHintText"
+                           VerticalAlignment="Center"
+                           Text="Перед сохранением будет выполнена проверка модели."
+                           FontSize="10"
+                           Foreground="{StaticResource TextMutedBrush}" />
+                <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                    <Button Content="Отмена"
+                            MinWidth="105"
+                            Style="{StaticResource ActionButtonStyle}"
+                            IsCancel="True" />
+                    <Button Content="ОК"
+                            MinWidth="105"
+                            Margin="0"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            IsDefault="True"
+                            Click="Ok_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

@@ -1,0 +1,289 @@
+<Window x:Class="TiaSclStudio.App.NodePropertiesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:TiaSclStudio.App"
+        Title="Свойства узла"
+        Width="760"
+        Height="720"
+        MinWidth="680"
+        MinHeight="530"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Window.Resources>
+        <Style x:Key="NodeEditorLabelStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style x:Key="NodeEditorTextBoxStyle" TargetType="TextBox">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="#0C131A" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="SelectionBrush" Value="{StaticResource AccentMutedBrush}" />
+        </Style>
+
+        <Style x:Key="NodeEditorReadOnlyTextBoxStyle"
+               TargetType="TextBox"
+               BasedOn="{StaticResource NodeEditorTextBoxStyle}">
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+            <Setter Property="Background" Value="#111A22" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="{StaticResource WindowBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Padding="20,15"
+                Background="#101720"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <TextBlock x:Name="EditorTitleText"
+                               Text="СВОЙСТВА УЗЛА"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Margin="0,4,0,0"
+                               Text="Изменения попадут в модель только после полной проверки и нажатия ОК."
+                               FontSize="10"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center">
+                    <Border HorizontalAlignment="Right"
+                            Padding="9,4"
+                            Background="{StaticResource AccentMutedBrush}"
+                            BorderBrush="{StaticResource AccentBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3">
+                        <TextBlock x:Name="NodeKindText"
+                                   FontFamily="Consolas"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" />
+                    </Border>
+                    <TextBlock x:Name="NodeIdText"
+                               Margin="0,5,0,0"
+                               HorizontalAlignment="Right"
+                               FontFamily="Consolas"
+                               FontSize="8"
+                               Foreground="{StaticResource TextDimBrush}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="20,18">
+                <Border Padding="14,11"
+                        Background="{StaticResource PanelAltBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="ОБЪЕКТ"
+                                   Style="{StaticResource NodeEditorLabelStyle}"
+                                   Margin="0"
+                                   VerticalAlignment="Center" />
+                        <TextBlock x:Name="ObjectSummaryText"
+                                   Grid.Column="2"
+                                   FontFamily="Consolas"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <StackPanel x:Name="BlockCallPanel"
+                            Margin="0,18,0,0"
+                            Visibility="Collapsed">
+                    <TextBlock Text="ВЫЗОВ БЛОКА"
+                               Style="{StaticResource SectionTitleStyle}" />
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="18" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
+                            <TextBlock Text="ИМЯ ЭКЗЕМПЛЯРА / INSTANCE DB"
+                                       Style="{StaticResource NodeEditorLabelStyle}" />
+                            <TextBox x:Name="InstanceNameTextBox"
+                                     Style="{StaticResource NodeEditorTextBoxStyle}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2"
+                                    Width="245"
+                                    VerticalAlignment="Bottom">
+                            <CheckBox x:Name="UseMultiInstanceCheckBox"
+                                      Margin="0,0,0,7"
+                                      Content="Использовать multi-instance"
+                                      Foreground="{StaticResource TextBrush}" />
+                            <TextBlock x:Name="MultiInstanceHintText"
+                                       FontSize="9"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel x:Name="ConstantPanel"
+                            Margin="0,18,0,0"
+                            Visibility="Collapsed">
+                    <TextBlock Text="КОНСТАНТА"
+                               Style="{StaticResource SectionTitleStyle}" />
+
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="18" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
+                            <TextBlock Text="ЛИТЕРАЛ SCL"
+                                       Style="{StaticResource NodeEditorLabelStyle}" />
+                            <TextBox x:Name="LiteralTextBox"
+                                     Style="{StaticResource NodeEditorTextBoxStyle}"
+                                     FontFamily="Consolas" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="ТИП ДАННЫХ"
+                                       Style="{StaticResource NodeEditorLabelStyle}" />
+                            <TextBox x:Name="ConstantDataTypeTextBox"
+                                     Style="{StaticResource NodeEditorTextBoxStyle}"
+                                     FontFamily="Consolas" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel x:Name="TagPanel"
+                            Margin="0,18,0,0"
+                            Visibility="Collapsed">
+                    <TextBlock Text="PLC-ТЕГ"
+                               Style="{StaticResource SectionTitleStyle}" />
+
+                    <Grid Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="ИМЯ PLC-ТЕГА"
+                                       Style="{StaticResource NodeEditorLabelStyle}" />
+                            <TextBox x:Name="TagNameTextBox"
+                                     Style="{StaticResource NodeEditorTextBoxStyle}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <local:PlcAddressEditorControl x:Name="TagAddressEditor" Margin="0,14,0,0" />
+
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="245" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
+                            <TextBlock Text="КОММЕНТАРИЙ"
+                                       Style="{StaticResource NodeEditorLabelStyle}" />
+                            <TextBox x:Name="TagCommentTextBox"
+                                     Height="82"
+                                     Style="{StaticResource NodeEditorTextBoxStyle}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="НАПРАВЛЕНИЕ ТЕРМИНАЛА"
+                                       Style="{StaticResource NodeEditorLabelStyle}" />
+                            <TextBox x:Name="TerminalDirectionTextBox"
+                                     Style="{StaticResource NodeEditorReadOnlyTextBoxStyle}" />
+                            <TextBlock Margin="0,8,0,0"
+                                       Text="Направление задаёт роль узла в схеме и здесь не изменяется."
+                                       FontSize="9"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Margin="0,12,0,0"
+                               Text="Изменение имени, типа, адреса или комментария обновит сам PLC-тег и все его терминалы на всех листах."
+                               FontSize="9"
+                               Foreground="{StaticResource WarningBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
+                <Border Margin="0,20,0,0"
+                        Padding="13,10"
+                        Background="#0B141B"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4">
+                    <StackPanel>
+                        <TextBlock x:Name="ValidationHintText"
+                                   Text="Провода и стабильные ID сохраняются. Несовместимое изменение типа будет заблокировано."
+                                   FontSize="10"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock x:Name="LoadWarningText"
+                                   Margin="0,7,0,0"
+                                   FontSize="10"
+                                   Foreground="{StaticResource WarningBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2"
+                Padding="18,13"
+                Background="#0B1218"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                <Button Content="Отмена"
+                        MinWidth="112"
+                        Style="{StaticResource ActionButtonStyle}"
+                        IsCancel="True" />
+                <Button Content="ОК"
+                        MinWidth="112"
+                        Margin="0"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        IsDefault="True"
+                        Click="Ok_Click" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

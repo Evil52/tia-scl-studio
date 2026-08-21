@@ -1,0 +1,34 @@
+# Normalise line endings so a checkout on any machine produces the same bytes.
+# Without this the working tree here is LF while .editorconfig asks for CRLF,
+# and every editor that honours one of them rewrites whole files.
+* text=auto eol=crlf
+
+# Text formats that must stay LF regardless of platform.
+*.sh          text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+
+# Generated SCL is written as UTF-8 with a BOM and CRLF; TIA Portal is
+# sensitive to both, so git must not touch it.
+*.scl         text eol=crlf working-tree-encoding=UTF-8
+
+# Project files are XML that Visual Studio rewrites with CRLF.
+*.sln         text eol=crlf
+*.csproj      text eol=crlf
+*.props       text eol=crlf
+*.targets     text eol=crlf
+*.xaml        text eol=crlf
+*.config      text eol=crlf
+
+# Binary, never diff or normalise.
+*.png         binary
+*.jpg         binary
+*.ico         binary
+*.dll         binary
+*.exe         binary
+*.pdb         binary
+*.snk         binary
+*.zip         binary
+
+# Diff hunks read better with the enclosing C# member named.
+*.cs          diff=csharp

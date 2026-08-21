@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.props" Condition="Exists('$(MSBuildToolsPath)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{2F1A8E10-4A62-4C4E-9C1D-6C0E2B1A0004}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>TiaSclStudio.Openness.Tests</RootNamespace>
+    <AssemblyName>TiaSclStudio.Openness.Tests</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>7.3</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <FileAlignment>512</FileAlignment>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <DebugType>portable</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="OfflineGatewayTests.cs" />
+    <Compile Include="OpennessInstallationLocatorTests.cs" />
+    <Compile Include="SclSourceInspectorTests.cs" />
+    <Compile Include="TiaExportRequestTests.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Openness\TiaSclStudio.Openness.csproj">
+      <Project>{7617E864-C75B-42BA-84E4-5A582858DD51}</Project>
+      <Name>TiaSclStudio.Openness</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Openness.Legacy.V17\TiaSclStudio.Openness.Legacy.V17.csproj">
+      <Project>{6A09541C-6556-487D-A0A8-194E15FE055F}</Project>
+      <Name>TiaSclStudio.Openness.Legacy.V17</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+    </ProjectReference>
+    <ProjectReference Include="..\TiaSclStudio.TestSupport\TiaSclStudio.TestSupport.csproj">
+      <Project>{2F1A8E10-4A62-4C4E-9C1D-6C0E2B1A0001}</Project>
+      <Name>TiaSclStudio.TestSupport</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

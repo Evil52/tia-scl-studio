@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.props" Condition="Exists('$(MSBuildToolsPath)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{2F1A8E10-4A62-4C4E-9C1D-6C0E2B1A0006}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>TiaSclStudio.EndToEnd.Tests</RootNamespace>
+    <AssemblyName>TiaSclStudio.EndToEnd.Tests</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>7.3</LangVersion>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <FileAlignment>512</FileAlignment>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <DebugType>portable</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Xml" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="HardwareIoSelectionPolicyTests.cs" />
+    <Compile Include="MainWindowSmokeTests.cs" />
+    <Compile Include="SelfTestExecutableTests.cs" />
+    <Compile Include="UserJourneyTests.cs" />
+    <Compile Include="WpfHost.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TiaSclStudio.App\TiaSclStudio.App.csproj">
+      <Project>{8641B279-7D6B-4D70-9BA0-1916AC587210}</Project>
+      <Name>TiaSclStudio.App</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Core\TiaSclStudio.Core.csproj">
+      <Project>{E461A99A-E788-4F37-86D6-9BB44484215C}</Project>
+      <Name>TiaSclStudio.Core</Name>
+      <SetPlatform>Platform=AnyCPU</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Diagram\TiaSclStudio.Diagram.csproj">
+      <Project>{B5814341-9D08-4C89-92CE-C942E1015DC3}</Project>
+      <Name>TiaSclStudio.Diagram</Name>
+      <SetPlatform>Platform=AnyCPU</SetPlatform>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\TiaSclStudio.Openness\TiaSclStudio.Openness.csproj">
+      <Project>{7617E864-C75B-42BA-84E4-5A582858DD51}</Project>
+      <Name>TiaSclStudio.Openness</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+    </ProjectReference>
+    <ProjectReference Include="..\..\tools\selftest\TiaSclStudio.SelfTest.csproj">
+      <Project>{54485C52-6306-47E3-B3C8-5D1BC7970B8A}</Project>
+      <Name>TiaSclStudio.SelfTest</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+      <SetConfiguration>Configuration=$(Configuration)</SetConfiguration>
+    </ProjectReference>
+    <ProjectReference Include="..\TiaSclStudio.TestSupport\TiaSclStudio.TestSupport.csproj">
+      <Project>{2F1A8E10-4A62-4C4E-9C1D-6C0E2B1A0001}</Project>
+      <Name>TiaSclStudio.TestSupport</Name>
+      <SetPlatform>Platform=x64</SetPlatform>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

@@ -1,0 +1,55 @@
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+artifacts/
+TestResults/
+*.cache
+*.log
+
+packages/
+.packages/
+
+*.tiasclproj.user
+
+# Local credentials and signing material must never enter source control.
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*.snk
+
+# Siemens runtime assemblies and customer TIA project archives are local-only.
+Siemens.Engineering*.dll
+*.ap17
+*.ap18
+*.ap19
+*.ap20
+*.zap17
+*.zap18
+*.zap19
+*.zap20
+
+# NuGet restore output for the PackageReference test projects.
+project.assets.json
+*.nuget.g.props
+*.nuget.g.targets
+obj/
+
+# Analysis and tooling output.
+.sonarqube/
+.scannerwork/
+artifacts/tools/

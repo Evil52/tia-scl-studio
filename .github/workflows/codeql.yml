@@ -1,0 +1,57 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  schedule:
+    # A weekly run picks up newly published queries against unchanged code,
+    # which is where most real findings in a slow-moving codebase come from.
+    - cron: '27 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze C#
+    # CodeQL has to observe the real compilation, and these projects only build
+    # with MSBuild on Windows.
+    runs-on: windows-2022
+    timeout-minutes: 60
+
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          build-mode: manual
+          # security-extended adds the query pack that covers path traversal,
+          # unsafe deserialisation and XML external entities, all of which this
+          # codebase touches when it reads project files and writes SCL.
+          queries: security-extended,security-and-quality
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Build
+        run: |
+          msbuild TiaSclStudio.sln -t:Restore -v:minimal -nologo
+          # Hosted CodeQL covers the offline product. The real Siemens adapter
+          # is compiled only by the licensed self-hosted release workflow.
+          msbuild TiaSclStudio.sln -t:Rebuild -p:Configuration=Release -p:Platform=x64 -p:HasTiaOpennessV17=false -p:TreatWarningsAsErrors=true -v:minimal -nologo -m
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:csharp

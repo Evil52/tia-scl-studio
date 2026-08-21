@@ -1,0 +1,68 @@
+namespace TiaSclStudio.Openness.Diagnostics
+{
+    public static class OpennessDiagnosticCodes
+    {
+        public const string RegistryAccessFailed = "OPENNESS_REGISTRY_ACCESS_FAILED";
+        public const string RegistryValueInvalid = "OPENNESS_REGISTRY_VALUE_INVALID";
+        public const string FallbackScanFailed = "OPENNESS_FALLBACK_SCAN_FAILED";
+        public const string AssemblyMissing = "OPENNESS_ASSEMBLY_MISSING";
+        public const string AssemblyInvalid = "OPENNESS_ASSEMBLY_INVALID";
+        public const string InstallationFound = "OPENNESS_INSTALLATION_FOUND";
+        public const string NoInstallationFound = "OPENNESS_INSTALLATION_NOT_FOUND";
+        public const string DiscoveryCompleted = "OPENNESS_DISCOVERY_COMPLETED";
+        public const string OfflineMode = "TIA_GATEWAY_OFFLINE";
+        public const string ConnectionRequestMissing = "TIA_CONNECTION_REQUEST_MISSING";
+        public const string ConnectionFailed = "TIA_CONNECTION_FAILED";
+        public const string SessionLost = "TIA_SESSION_LOST";
+        public const string AccessDenied = "TIA_ACCESS_DENIED";
+        public const string ConnectedHeadless = "TIA_GATEWAY_CONNECTED_HEADLESS";
+        public const string ProcessNotFound = "TIA_PROCESS_NOT_FOUND";
+        public const string ProcessAmbiguous = "TIA_PROCESS_AMBIGUOUS";
+        public const string ProjectPathRequired = "TIA_PROJECT_PATH_REQUIRED";
+        public const string ProjectFileMissing = "TIA_PROJECT_FILE_MISSING";
+        public const string ProjectVersionMismatch = "TIA_PROJECT_VERSION_MISMATCH";
+        public const string ProjectOpenFailed = "TIA_PROJECT_OPEN_FAILED";
+        public const string PlcNotFound = "TIA_PLC_NOT_FOUND";
+        public const string PlcAmbiguous = "TIA_PLC_AMBIGUOUS";
+        public const string GatewayNotConnected = "TIA_GATEWAY_NOT_CONNECTED";
+        public const string HardwareIoCatalogUnavailable = "TIA_HARDWARE_IO_CATALOG_UNAVAILABLE";
+        public const string HardwareIoChannelUnsupported = "TIA_HARDWARE_IO_CHANNEL_UNSUPPORTED";
+        public const string HardwareIoCatalogReadFailed = "TIA_HARDWARE_IO_CATALOG_READ_FAILED";
+        public const string HardwareIoCatalogRead = "TIA_HARDWARE_IO_CATALOG_READ";
+        public const string ExportRequestMissing = "TIA_EXPORT_REQUEST_MISSING";
+        public const string ExportSkippedOffline = "TIA_EXPORT_SKIPPED_OFFLINE";
+        public const string PreflightFailed = "TIA_EXPORT_PREFLIGHT_FAILED";
+        public const string SourceFileMissing = "TIA_SOURCE_FILE_MISSING";
+        public const string SourceFileInvalid = "TIA_SOURCE_FILE_INVALID";
+        public const string SourceEncodingInvalid = "TIA_SOURCE_ENCODING_INVALID";
+        public const string SourceOrderInvalid = "TIA_SOURCE_ORDER_INVALID";
+        public const string SourceDeclarationDuplicate = "TIA_SOURCE_DECLARATION_DUPLICATE";
+        public const string OwnershipMarkerInvalid = "TIA_OWNERSHIP_MARKER_INVALID";
+        public const string Ob1Protected = "TIA_OB1_PROTECTED";
+        public const string TagDefinitionInvalid = "TIA_TAG_DEFINITION_INVALID";
+        public const string TagDuplicate = "TIA_TAG_DUPLICATE";
+        public const string TagConflict = "TIA_TAG_CONFLICT";
+        public const string BlockConflict = "TIA_BLOCK_CONFLICT";
+        public const string DataTypeConflict = "TIA_DATA_TYPE_CONFLICT";
+        public const string UnsavedProjectChanges = "TIA_UNSAVED_PROJECT_CHANGES";
+        public const string SaveRequiredHeadless = "TIA_SAVE_REQUIRED_HEADLESS";
+        public const string UnsavedChangesRequireManualSave = "TIA_UNSAVED_CHANGES_REQUIRE_MANUAL_SAVE";
+        public const string ConnectionReleaseBlocked = "TIA_CONNECTION_RELEASE_BLOCKED";
+        public const string ConfirmationRequired = "TIA_CONFIRMATION_REQUIRED";
+        public const string ConfirmationInvalid = "TIA_CONFIRMATION_INVALID";
+        public const string ConfirmationStale = "TIA_CONFIRMATION_STALE";
+        public const string TransactionCancelled = "TIA_TRANSACTION_CANCELLED";
+        public const string TransactionFailed = "TIA_TRANSACTION_FAILED";
+        public const string TagCommentSkipped = "TIA_TAG_COMMENT_SKIPPED";
+        public const string SourceImported = "TIA_SOURCE_IMPORTED";
+        public const string TemporarySourceCleanupFailed = "TIA_TEMP_SOURCE_CLEANUP_FAILED";
+        public const string CompilationMessage = "TIA_COMPILATION_MESSAGE";
+        public const string CompilationFailed = "TIA_COMPILATION_FAILED";
+        public const string CompilationSucceeded = "TIA_COMPILATION_SUCCEEDED";
+        public const string ProjectSaveFailed = "TIA_PROJECT_SAVE_FAILED";
+        public const string ProjectSaved = "TIA_PROJECT_SAVED";
+        public const string SaveSkippedCompileErrors = "TIA_SAVE_SKIPPED_COMPILE_ERRORS";
+        public const string ExportSucceeded = "TIA_EXPORT_SUCCEEDED";
+        public const string ExportFailed = "TIA_EXPORT_FAILED";
+    }
+}

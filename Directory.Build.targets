@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Test projects declare IsTestProject after Directory.Build.props is imported.
+  These settings therefore belong in Directory.Build.targets, which is read
+  after the project body and can see the final property value.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Condition=" '$(IsTestProject)' == 'true' ">
+    <!--
+      Test code deliberately constructs malformed inputs. Warnings still
+      surface, but do not fail ordinary local test builds. The strict CI build
+      passes TreatWarningsAsErrors=true as a global property when required.
+    -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,62 @@
+name: Bug report
+description: Something the tool does that it should not
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this concerns a security weakness, do not file it here.
+        See SECURITY.md for the private reporting route.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scl
+    attributes:
+      label: Generated SCL
+      description: >
+        If the generated code is wrong, paste what was produced and what TIA
+        Portal should have received. This is usually the whole report.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: TIA SCL Studio version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tia
+    attributes:
+      label: TIA Portal
+      options:
+        - Not connected (offline)
+        - V17
+        - V18
+        - V19
+        - V20
+        - V21 or newer
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 10 Pro 22H2"
+
+  - type: textarea
+    id: project
+    attributes:
+      label: Smallest project that reproduces it
+      description: >
+        Attach the .tiasclproj if you can share it. Strip anything confidential
+        first: block names and comments travel with the file.
