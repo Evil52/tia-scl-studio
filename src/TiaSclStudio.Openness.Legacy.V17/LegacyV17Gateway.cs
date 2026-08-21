@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Siemens.Engineering;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
@@ -15,6 +16,7 @@ using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.SW.ExternalSources;
 using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.Types;
+using Siemens.Engineering.SW.Units;
 using TiaSclStudio.Openness.Diagnostics;
 using TiaSclStudio.Openness.Gateway;
 using TiaSclStudio.Openness.Model;
@@ -278,6 +280,69 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         selectedDeviceName,
                         exception));
                     return UnavailableHardwareIoCatalog(diagnostics);
+                }
+            }
+        }
+
+        public TiaLibrarySnapshot ReadLibrarySnapshot(CancellationToken cancellationToken)
+        {
+            lock (syncRoot)
+            {
+                var diagnostics = new List<OpennessDiagnostic>();
+                var sources = new List<TiaLibrarySource>();
+                if (disposed)
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.LibrarySnapshotUnavailable,
+                        "The V17 gateway has already been disposed."));
+                    return UnavailableLibrarySnapshot(diagnostics);
+                }
+
+                if (tiaPortal == null || project == null || plcSoftware == null || selectedCpuItem == null)
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.LibrarySnapshotUnavailable,
+                        "Connect to a project and select one PLC before reading FB, FC and PLC data-type sources."));
+                    return UnavailableLibrarySnapshot(diagnostics);
+                }
+
+                try
+                {
+                    return BuildLibrarySnapshot(cancellationToken, sources, diagnostics);
+                }
+                catch (OperationCanceledException)
+                {
+                    diagnostics.Add(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.LibrarySnapshotCancelled,
+                        DiagnosticSeverity.Information,
+                        "PLC library readback was cancelled between objects. The returned snapshot is partial.",
+                        selectedSoftwareName));
+                    return AvailableLibrarySnapshot(false, sources, diagnostics);
+                }
+                catch (NonRecoverableException exception)
+                {
+                    HandleSessionLost(
+                        diagnostics,
+                        "TIA Portal closed the session while reading the PLC library: " + exception.Message,
+                        exception);
+                    return UnavailableLibrarySnapshot(diagnostics, sources);
+                }
+                catch (EngineeringSecurityException exception)
+                {
+                    HandleAccessDenied(
+                        diagnostics,
+                        "TIA Openness access was denied while reading the PLC library: " + exception.Message,
+                        exception);
+                    return UnavailableLibrarySnapshot(diagnostics, sources);
+                }
+                catch (Exception exception)
+                {
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.LibrarySnapshotReadFailed,
+                        "PLC library readback failed: " + exception.Message,
+                        selectedSoftwareName,
+                        exception));
+                    return AvailableLibrarySnapshot(false, sources, diagnostics);
                 }
             }
         }
@@ -895,6 +960,381 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 cpuModel,
                 cpuTypeIdentifier,
                 channels,
+                diagnostics);
+        }
+
+        private TiaLibrarySnapshot BuildLibrarySnapshot(
+            CancellationToken cancellationToken,
+            IList<TiaLibrarySource> sources,
+            IList<OpennessDiagnostic> diagnostics)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var candidates = CollectLibraryReadCandidates(cancellationToken);
+            if (candidates.Count > LegacyLibraryReadbackPolicy.MaximumObjectCount)
+            {
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.LibrarySnapshotReadFailed,
+                    "PLC library readback was rejected because " +
+                    candidates.Count.ToString(CultureInfo.InvariantCulture) +
+                    " FB/FC/UDT objects exceed the safety limit of " +
+                    LegacyLibraryReadbackPolicy.MaximumObjectCount.ToString(CultureInfo.InvariantCulture) + ".",
+                    selectedSoftwareName));
+                return AvailableLibrarySnapshot(false, sources, diagnostics);
+            }
+
+            var duplicateGroups = candidates
+                .GroupBy(GetLibraryCollisionKey, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .ToList();
+            var duplicateKeys = new HashSet<string>(
+                duplicateGroups.Select(group => group.Key),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var duplicateGroup in duplicateGroups)
+            {
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.LibrarySnapshotReadFailed,
+                    "More than one PLC object maps to the same local library name '" +
+                    duplicateGroup.First().Name + "': " +
+                    string.Join(", ", duplicateGroup
+                        .Select(item => item.Location)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)) +
+                    ". The ambiguous objects were not returned.",
+                    duplicateGroup.First().Name));
+            }
+
+            var isComplete = duplicateKeys.Count == 0;
+            long totalSourceBytes = 0;
+            foreach (var candidate in candidates
+                .OrderBy(item => item.Kind)
+                .ThenBy(item => item.GroupPath, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (duplicateKeys.Contains(GetLibraryCollisionKey(candidate)))
+                {
+                    continue;
+                }
+
+                if (candidate.IsKnowHowProtected)
+                {
+                    isComplete = false;
+                    diagnostics.Add(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.LibrarySnapshotObjectSkipped,
+                        DiagnosticSeverity.Warning,
+                        "The PLC object is know-how protected and cannot be read back as SCL.",
+                        candidate.Location));
+                    continue;
+                }
+
+                if (candidate.Kind != TiaLibrarySourceKind.DataType &&
+                    !string.Equals(candidate.ProgrammingLanguage, "SCL", StringComparison.OrdinalIgnoreCase))
+                {
+                    isComplete = false;
+                    diagnostics.Add(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.LibrarySnapshotObjectSkipped,
+                        DiagnosticSeverity.Warning,
+                        "Only SCL FB/FC blocks can be generated as SCL source; this " +
+                        candidate.ProgrammingLanguage + " block was skipped.",
+                        candidate.Location));
+                    continue;
+                }
+
+                try
+                {
+                    long sourceBytes;
+                    var sourceText = GenerateLibrarySource(candidate, diagnostics, out sourceBytes);
+                    if (totalSourceBytes + sourceBytes > LegacyLibraryReadbackPolicy.MaximumTotalSourceBytes)
+                    {
+                        isComplete = false;
+                        diagnostics.Add(Error(
+                            OpennessDiagnosticCodes.LibrarySnapshotReadFailed,
+                            "PLC library readback stopped because generated sources exceed the total safety limit of " +
+                            LegacyLibraryReadbackPolicy.MaximumTotalSourceBytes.ToString(CultureInfo.InvariantCulture) +
+                            " bytes.",
+                            candidate.Location));
+                        break;
+                    }
+
+                    ValidateGeneratedLibrarySource(candidate, sourceText);
+                    totalSourceBytes += sourceBytes;
+                    sources.Add(new TiaLibrarySource(
+                        candidate.Kind,
+                        candidate.Name,
+                        candidate.GroupPath,
+                        candidate.ProgrammingLanguage,
+                        sourceText));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (NonRecoverableException)
+                {
+                    throw;
+                }
+                catch (EngineeringSecurityException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    isComplete = false;
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.LibrarySnapshotReadFailed,
+                        "PLC object source generation failed and the object was skipped: " + exception.Message,
+                        candidate.Location,
+                        exception));
+                }
+            }
+
+            diagnostics.Add(new OpennessDiagnostic(
+                OpennessDiagnosticCodes.LibrarySnapshotRead,
+                DiagnosticSeverity.Information,
+                "PLC library readback completed with " +
+                sources.Count.ToString(CultureInfo.InvariantCulture) +
+                " generated FB/FC/UDT source(s)" + (isComplete ? "." : "; the snapshot is partial."),
+                selectedDeviceName + "/" + selectedSoftwareName));
+            return AvailableLibrarySnapshot(isComplete, sources, diagnostics);
+        }
+
+        private static string GetLibraryCollisionKey(LibraryReadCandidate candidate)
+        {
+            return LegacyLibraryReadbackPolicy.GetCollisionKey(candidate.Kind, candidate.Name);
+        }
+
+        private List<LibraryReadCandidate> CollectLibraryReadCandidates(
+            CancellationToken cancellationToken)
+        {
+            var result = new List<LibraryReadCandidate>();
+            AddLibraryScopeCandidates(
+                plcSoftware.BlockGroup,
+                plcSoftware.TypeGroup,
+                plcSoftware.ExternalSourceGroup,
+                string.Empty,
+                result);
+
+            var unitProvider = plcSoftware.GetService<PlcUnitProvider>();
+            if (unitProvider == null || unitProvider.UnitGroup == null)
+            {
+                return result;
+            }
+
+            foreach (var unit in unitProvider.UnitGroup.Units)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (unit == null)
+                {
+                    continue;
+                }
+
+                AddLibraryScopeCandidates(
+                    unit.BlockGroup,
+                    unit.TypeGroup,
+                    unit.ExternalSourceGroup,
+                    CombineLibraryGroupPath("Unit", unit.Name),
+                    result);
+            }
+
+            return result;
+        }
+
+        private static void AddLibraryScopeCandidates(
+            PlcBlockGroup blockGroup,
+            PlcTypeGroup typeGroup,
+            PlcExternalSourceSystemGroup externalSourceGroup,
+            string scopePath,
+            ICollection<LibraryReadCandidate> candidates)
+        {
+            if (blockGroup != null)
+            {
+                var blocks = LegacyLibraryReadbackPolicy.WalkGroupTree(
+                    blockGroup,
+                    group => group.Blocks.Cast<PlcBlock>(),
+                    group => group.Groups.Cast<PlcBlockGroup>(),
+                    group => group.Name);
+                foreach (var entry in blocks)
+                {
+                    var block = entry.Item;
+                    TiaLibrarySourceKind kind;
+                    if (block is FB)
+                    {
+                        kind = TiaLibrarySourceKind.FunctionBlock;
+                    }
+                    else if (block is FC)
+                    {
+                        kind = TiaLibrarySourceKind.Function;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    candidates.Add(new LibraryReadCandidate(
+                        (IGenerateSource)block,
+                        externalSourceGroup,
+                        kind,
+                        block.Name,
+                        CombineLibraryGroupPath(scopePath, entry.GroupPath),
+                        block.ProgrammingLanguage.ToString(),
+                        block.IsKnowHowProtected));
+                }
+            }
+
+            if (typeGroup == null)
+            {
+                return;
+            }
+
+            var types = LegacyLibraryReadbackPolicy.WalkGroupTree(
+                typeGroup,
+                group => group.Types.Cast<PlcType>(),
+                group => group.Groups.Cast<PlcTypeGroup>(),
+                group => group.Name);
+            foreach (var entry in types)
+            {
+                var type = entry.Item as PlcStruct;
+                if (type == null)
+                {
+                    continue;
+                }
+
+                candidates.Add(new LibraryReadCandidate(
+                    type,
+                    externalSourceGroup,
+                    TiaLibrarySourceKind.DataType,
+                    type.Name,
+                    CombineLibraryGroupPath(scopePath, entry.GroupPath),
+                    "SCL",
+                    type.IsKnowHowProtected));
+            }
+        }
+
+        private static string CombineLibraryGroupPath(string left, string right)
+        {
+            var normalizedLeft = (left ?? string.Empty).Trim('/');
+            var normalizedRight = (right ?? string.Empty).Trim('/');
+            if (string.IsNullOrEmpty(normalizedLeft))
+            {
+                return normalizedRight;
+            }
+
+            return string.IsNullOrEmpty(normalizedRight)
+                ? normalizedLeft
+                : normalizedLeft + "/" + normalizedRight;
+        }
+
+        private static string GenerateLibrarySource(
+            LibraryReadCandidate candidate,
+            IList<OpennessDiagnostic> diagnostics,
+            out long sourceBytes)
+        {
+            if (candidate.ExternalSourceGroup == null)
+            {
+                throw new InvalidOperationException(
+                    "The PLC object scope does not expose an external-source system group.");
+            }
+
+            var temporaryDirectory = Path.Combine(
+                Path.GetTempPath(),
+                "TiaSclStudio-readback-" + Guid.NewGuid().ToString("N"));
+            var sourcePath = Path.Combine(
+                temporaryDirectory,
+                "source" + LegacyLibraryReadbackPolicy.GetSourceExtension(candidate.Kind));
+            Directory.CreateDirectory(temporaryDirectory);
+            try
+            {
+                // GenerateSource requires a destination that does not exist. The
+                // directory is fresh and the source path is intentionally not
+                // pre-created.
+                candidate.ExternalSourceGroup.GenerateSource(
+                    new[] { candidate.SourceObject },
+                    new FileInfo(sourcePath),
+                    GenerateOptions.None);
+                var generatedFile = new FileInfo(sourcePath);
+                if (!generatedFile.Exists)
+                {
+                    throw new InvalidOperationException(
+                        "TIA Portal returned from GenerateSource without creating the destination file.");
+                }
+
+                sourceBytes = generatedFile.Length;
+                if (sourceBytes <= 0 ||
+                    sourceBytes > LegacyLibraryReadbackPolicy.MaximumSourceBytesPerObject)
+                {
+                    throw new InvalidOperationException(
+                        "Generated source size " + sourceBytes.ToString(CultureInfo.InvariantCulture) +
+                        " bytes is outside the accepted range 1.." +
+                        LegacyLibraryReadbackPolicy.MaximumSourceBytesPerObject.ToString(CultureInfo.InvariantCulture) + ".");
+                }
+
+                return File.ReadAllText(sourcePath, new UTF8Encoding(false, true));
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(temporaryDirectory))
+                    {
+                        Directory.Delete(temporaryDirectory, true);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.TemporarySourceCleanupFailed,
+                        "A generated readback source was returned, but its temporary directory could not be removed: " +
+                        exception.Message,
+                        temporaryDirectory,
+                        exception,
+                        DiagnosticSeverity.Warning));
+                }
+            }
+        }
+
+        private static void ValidateGeneratedLibrarySource(
+            LibraryReadCandidate candidate,
+            string sourceText)
+        {
+            var expectedKind = candidate.Kind == TiaLibrarySourceKind.DataType
+                ? SclDeclarationKind.DataType
+                : candidate.Kind == TiaLibrarySourceKind.FunctionBlock
+                    ? SclDeclarationKind.FunctionBlock
+                    : SclDeclarationKind.Function;
+            var declarations = SclSourceInspector.FindDeclarations(sourceText);
+            if (declarations.Count != 1 ||
+                declarations[0].Kind != expectedKind ||
+                !string.Equals(declarations[0].Name, candidate.Name, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Generated source did not contain exactly the expected " +
+                    expectedKind + " declaration '" + candidate.Name + "'.");
+            }
+        }
+
+        private TiaLibrarySnapshot AvailableLibrarySnapshot(
+            bool isComplete,
+            IEnumerable<TiaLibrarySource> sources,
+            IEnumerable<OpennessDiagnostic> diagnostics)
+        {
+            return new TiaLibrarySnapshot(
+                true,
+                isComplete,
+                selectedDeviceName,
+                selectedSoftwareName,
+                sources,
+                diagnostics);
+        }
+
+        private TiaLibrarySnapshot UnavailableLibrarySnapshot(
+            IEnumerable<OpennessDiagnostic> diagnostics,
+            IEnumerable<TiaLibrarySource> sources = null)
+        {
+            return new TiaLibrarySnapshot(
+                false,
+                false,
+                selectedDeviceName,
+                selectedSoftwareName,
+                sources,
                 diagnostics);
         }
 
@@ -3111,6 +3551,51 @@ namespace TiaSclStudio.Openness.Legacy.V17
             public string RequestFingerprint { get; private set; }
 
             public string PlanFingerprint { get; private set; }
+        }
+
+        private sealed class LibraryReadCandidate
+        {
+            public LibraryReadCandidate(
+                IGenerateSource sourceObject,
+                PlcExternalSourceSystemGroup externalSourceGroup,
+                TiaLibrarySourceKind kind,
+                string name,
+                string groupPath,
+                string programmingLanguage,
+                bool isKnowHowProtected)
+            {
+                SourceObject = sourceObject ?? throw new ArgumentNullException(nameof(sourceObject));
+                ExternalSourceGroup = externalSourceGroup;
+                Kind = kind;
+                Name = name ?? string.Empty;
+                GroupPath = groupPath ?? string.Empty;
+                ProgrammingLanguage = programmingLanguage ?? string.Empty;
+                IsKnowHowProtected = isKnowHowProtected;
+            }
+
+            public IGenerateSource SourceObject { get; private set; }
+
+            public PlcExternalSourceSystemGroup ExternalSourceGroup { get; private set; }
+
+            public TiaLibrarySourceKind Kind { get; private set; }
+
+            public string Name { get; private set; }
+
+            public string GroupPath { get; private set; }
+
+            public string ProgrammingLanguage { get; private set; }
+
+            public bool IsKnowHowProtected { get; private set; }
+
+            public string Location
+            {
+                get
+                {
+                    return string.IsNullOrEmpty(GroupPath)
+                        ? Name
+                        : GroupPath + "/" + Name;
+                }
+            }
         }
 
         private sealed class PlcCandidate

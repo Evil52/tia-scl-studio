@@ -120,6 +120,9 @@
     <Compile Include="MainWindow.SclImport.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.TiaLibraryImport.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.CanvasEditing.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -147,6 +150,7 @@
     <Compile Include="BlockLibraryEditorLogic.cs" />
     <Compile Include="UdtLibraryEditorLogic.cs" />
     <Compile Include="SclImportApplicationLogic.cs" />
+    <Compile Include="TiaLibraryImportUiLogic.cs" />
     <Compile Include="SclImportPreviewWindow.xaml.cs">
       <DependentUpon>SclImportPreviewWindow.xaml</DependentUpon>
     </Compile>

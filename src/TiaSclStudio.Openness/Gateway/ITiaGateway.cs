@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 namespace TiaSclStudio.Openness.Gateway
 {
@@ -13,6 +14,12 @@ namespace TiaSclStudio.Openness.Gateway
         TiaGatewayStatus Connect(TiaConnectionRequest request);
 
         TiaHardwareIoCatalog ReadHardwareIoCatalog();
+
+        /// <summary>
+        /// Reads FB, FC and PLC data-type sources from the selected PLC without
+        /// modifying TIA Portal. Cancellation is observed between PLC objects.
+        /// </summary>
+        TiaLibrarySnapshot ReadLibrarySnapshot(CancellationToken cancellationToken);
 
         TiaExportPreview PreviewExport(TiaExportRequest request);
 

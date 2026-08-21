@@ -3,6 +3,53 @@ using System.Windows;
 
 namespace TiaSclStudio.App
 {
+    internal sealed class SclImportPreviewPresentation
+    {
+        internal SclImportPreviewPresentation(
+            string windowTitle,
+            string heading,
+            string safetyText,
+            string warningText = null)
+        {
+            WindowTitle = windowTitle ?? string.Empty;
+            Heading = heading ?? string.Empty;
+            SafetyText = safetyText ?? string.Empty;
+            WarningText = warningText ?? string.Empty;
+        }
+
+        internal string WindowTitle { get; private set; }
+
+        internal string Heading { get; private set; }
+
+        internal string SafetyText { get; private set; }
+
+        internal string WarningText { get; private set; }
+
+        internal static SclImportPreviewPresentation FromFile
+        {
+            get
+            {
+                return new SclImportPreviewPresentation(
+                    "Предпросмотр импорта SCL",
+                    "ИМПОРТ FB / FC / UDT ИЗ SCL",
+                    "Импортируется только объявление и интерфейс. Код между BEGIN и END_FUNCTION/END_FUNCTION_BLOCK " +
+                    "не копируется и не выполняется; блок помечается ImportedInterfaceOnly.");
+            }
+        }
+
+        internal static SclImportPreviewPresentation FromConnectedTia
+        {
+            get
+            {
+                return new SclImportPreviewPresentation(
+                    "Предпросмотр импорта из TIA Portal",
+                    "ИМПОРТ FB / FC / UDT ИЗ TIA PORTAL",
+                    "Показан снимок подключённого PLC, полученный только для чтения. TIA Portal не изменяется. " +
+                    "В локальную библиотеку попадают только объявления и интерфейсы; тела FB/FC не копируются.");
+            }
+        }
+    }
+
     public partial class SclImportPreviewWindow : Window
     {
         private readonly SclLibraryImportPlan _withoutReplacement;
@@ -11,10 +58,27 @@ namespace TiaSclStudio.App
         internal SclImportPreviewWindow(
             SclLibraryImportPlan withoutReplacement,
             SclLibraryImportPlan withReplacement)
+            : this(withoutReplacement, withReplacement, SclImportPreviewPresentation.FromFile)
         {
-            _withoutReplacement = withoutReplacement;
-            _withReplacement = withReplacement;
+        }
+
+        internal SclImportPreviewWindow(
+            SclLibraryImportPlan withoutReplacement,
+            SclLibraryImportPlan withReplacement,
+            SclImportPreviewPresentation presentation)
+        {
+            _withoutReplacement = withoutReplacement ?? throw new System.ArgumentNullException("withoutReplacement");
+            _withReplacement = withReplacement ?? throw new System.ArgumentNullException("withReplacement");
+            if (presentation == null) throw new System.ArgumentNullException("presentation");
             InitializeComponent();
+
+            Title = presentation.WindowTitle;
+            ImportHeadingText.Text = presentation.Heading;
+            ImportSafetyText.Text = presentation.SafetyText;
+            ImportWarningText.Text = presentation.WarningText;
+            ImportWarningPanel.Visibility = string.IsNullOrWhiteSpace(presentation.WarningText)
+                ? Visibility.Collapsed
+                : Visibility.Visible;
 
             ReplaceExistingCheckBox.IsEnabled = withoutReplacement.Items.Any(item =>
                 item.Action == SclLibraryImportAction.Skip);

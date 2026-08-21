@@ -33,36 +33,15 @@ namespace TiaSclStudio.App
             {
                 var source = ReadSclSource(dialog.FileName);
                 var parsed = new SclLibrarySourceParser().Parse(source);
-                var withoutReplacement = SclImportApplicationLogic.BuildPlan(_project, parsed, false);
-                var withReplacement = SclImportApplicationLogic.BuildPlan(_project, parsed, true);
-                var preview = new SclImportPreviewWindow(withoutReplacement, withReplacement)
-                {
-                    Owner = this
-                };
-                if (preview.ShowDialog() != true || !preview.SelectedPlan.CanApply)
+                var plan = PreviewAndApplyLibraryImport(
+                    parsed,
+                    SclImportPreviewPresentation.FromFile,
+                    "Импорт интерфейсов из " + Path.GetFileName(dialog.FileName));
+                if (plan == null)
                 {
                     SetStatus("Импорт SCL отменён; проект не изменён");
                     return;
                 }
-
-                var plan = preview.SelectedPlan;
-                if (!TryCommitSemanticEdit(
-                    "Импорт интерфейсов из " + Path.GetFileName(dialog.FileName),
-                    () => SclImportApplicationLogic.Apply(_project, plan)))
-                {
-                    return;
-                }
-
-                var selectedBlock = plan.Items
-                    .Where(item => item.CandidateBlock != null &&
-                        (item.Action == SclLibraryImportAction.Add ||
-                         item.Action == SclLibraryImportAction.Update))
-                    .Select(item => item.CandidateBlock.Id)
-                    .FirstOrDefault();
-                RefreshLibrary(selectedBlock);
-                _interactionDiagnostics.Clear();
-                RenderDiagram();
-                RefreshCompilation(false);
                 SetStatus(
                     "Импорт SCL завершён: добавлено " + plan.AddCount +
                     ", обновлено " + plan.UpdateCount +
@@ -75,6 +54,53 @@ namespace TiaSclStudio.App
                     "Не удалось импортировать SCL: " + exception.Message,
                     dialog.FileName);
             }
+        }
+
+        private SclLibraryImportPlan PreviewAndApplyLibraryImport(
+            SclLibraryImportResult parsed,
+            SclImportPreviewPresentation presentation,
+            string historyDescription)
+        {
+            if (parsed == null) throw new ArgumentNullException("parsed");
+            if (presentation == null) throw new ArgumentNullException("presentation");
+            if (_project == null || _project.Plant == null)
+            {
+                throw new InvalidOperationException("Локальный проект не загружен.");
+            }
+
+            var withoutReplacement = SclImportApplicationLogic.BuildPlan(_project, parsed, false);
+            var withReplacement = SclImportApplicationLogic.BuildPlan(_project, parsed, true);
+            var preview = new SclImportPreviewWindow(
+                withoutReplacement,
+                withReplacement,
+                presentation)
+            {
+                Owner = this
+            };
+            if (preview.ShowDialog() != true || !preview.SelectedPlan.CanApply)
+            {
+                return null;
+            }
+
+            var plan = preview.SelectedPlan;
+            if (!TryCommitSemanticEdit(
+                historyDescription,
+                () => SclImportApplicationLogic.Apply(_project, plan)))
+            {
+                return null;
+            }
+
+            var selectedBlock = plan.Items
+                .Where(item => item.CandidateBlock != null &&
+                    (item.Action == SclLibraryImportAction.Add ||
+                     item.Action == SclLibraryImportAction.Update))
+                .Select(item => item.CandidateBlock.Id)
+                .FirstOrDefault();
+            RefreshLibrary(selectedBlock);
+            _interactionDiagnostics.Clear();
+            RenderDiagram();
+            RefreshCompilation(false);
+            return plan;
         }
 
         private static string ReadSclSource(string path)

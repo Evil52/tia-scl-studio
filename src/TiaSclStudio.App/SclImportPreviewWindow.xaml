@@ -22,13 +22,27 @@
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,0,0,1">
             <StackPanel>
-                <TextBlock Text="ИМПОРТ FB / FC / UDT ИЗ SCL"
+                <TextBlock x:Name="ImportHeadingText"
+                           Text="ИМПОРТ FB / FC / UDT ИЗ SCL"
                            FontSize="15"
                            FontWeight="SemiBold" />
-                <TextBlock Margin="0,7,0,0"
+                <TextBlock x:Name="ImportSafetyText"
+                           Margin="0,7,0,0"
                            Foreground="{StaticResource TextMutedBrush}"
                            TextWrapping="Wrap"
                            Text="Импортируется только объявление и интерфейс. Код между BEGIN и END_FUNCTION/END_FUNCTION_BLOCK не копируется и не выполняется; блок помечается ImportedInterfaceOnly." />
+                <Border x:Name="ImportWarningPanel"
+                        Margin="0,10,0,0"
+                        Padding="10,7"
+                        Visibility="Collapsed"
+                        Background="#332819"
+                        BorderBrush="{StaticResource WarningBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4">
+                    <TextBlock x:Name="ImportWarningText"
+                               Foreground="{StaticResource WarningBrush}"
+                               TextWrapping="Wrap" />
+                </Border>
             </StackPanel>
         </Border>
 

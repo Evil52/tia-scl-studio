@@ -29,6 +29,11 @@ namespace TiaSclStudio.Openness.Diagnostics
         public const string HardwareIoChannelUnsupported = "TIA_HARDWARE_IO_CHANNEL_UNSUPPORTED";
         public const string HardwareIoCatalogReadFailed = "TIA_HARDWARE_IO_CATALOG_READ_FAILED";
         public const string HardwareIoCatalogRead = "TIA_HARDWARE_IO_CATALOG_READ";
+        public const string LibrarySnapshotUnavailable = "TIA_LIBRARY_SNAPSHOT_UNAVAILABLE";
+        public const string LibrarySnapshotReadFailed = "TIA_LIBRARY_SNAPSHOT_READ_FAILED";
+        public const string LibrarySnapshotObjectSkipped = "TIA_LIBRARY_SNAPSHOT_OBJECT_SKIPPED";
+        public const string LibrarySnapshotCancelled = "TIA_LIBRARY_SNAPSHOT_CANCELLED";
+        public const string LibrarySnapshotRead = "TIA_LIBRARY_SNAPSHOT_READ";
         public const string ExportRequestMissing = "TIA_EXPORT_REQUEST_MISSING";
         public const string ExportSkippedOffline = "TIA_EXPORT_SKIPPED_OFFLINE";
         public const string PreflightFailed = "TIA_EXPORT_PREFLIGHT_FAILED";

@@ -971,6 +971,10 @@ namespace TiaSclStudio.App
                 _tiaGatewayStatus.IsConnected &&
                 _tiaGatewayStatus.CanExport &&
                 IsConnectedToCurrentTarget();
+            ReadTiaLibraryButton.IsEnabled = TiaLibraryImportUiLogic.CanReadLibrary(
+                _tiaGatewayStatus,
+                IsConnectedToCurrentTarget(),
+                _onlineBusy);
             ConfirmExportButton.IsEnabled =
                 !_onlineBusy &&
                 _tiaExportPreview != null &&
@@ -1210,10 +1214,13 @@ namespace TiaSclStudio.App
         {
             if (_onlineBusy)
             {
+                var libraryReadCancelled = CancelTiaLibraryRead();
                 e.Cancel = true;
                 MessageBox.Show(
                     this,
-                    "Дождитесь завершения текущей операции TIA Openness.",
+                    libraryReadCancelled
+                        ? "Чтение библиотеки TIA отменяется. Закройте окно ещё раз после завершения отмены."
+                        : "Дождитесь завершения текущей операции TIA Openness.",
                     "Операция выполняется",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -1243,6 +1250,7 @@ namespace TiaSclStudio.App
 
         protected override void OnClosed(EventArgs e)
         {
+            CancelTiaLibraryRead();
             CleanupStagingDirectory();
             if (!_gatewayDisposed && _tiaGateway != null)
             {

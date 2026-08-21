@@ -69,6 +69,9 @@
     <Compile Include="Gateway\TiaHardwareIoCatalog.cs" />
     <Compile Include="Gateway\TiaHardwareIoChannel.cs" />
     <Compile Include="Gateway\TiaIoChannelKind.cs" />
+    <Compile Include="Gateway\TiaLibrarySnapshot.cs" />
+    <Compile Include="Gateway\TiaLibrarySource.cs" />
+    <Compile Include="Gateway\TiaLibrarySourceKind.cs" />
     <Compile Include="Gateway\TiaPlcTag.cs" />
     <Compile Include="Gateway\TiaSourceFile.cs" />
     <Compile Include="Gateway\TiaSourceKind.cs" />

@@ -44,9 +44,11 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="OfflineGatewayTests.cs" />
+    <Compile Include="LegacyLibraryReadbackPolicyTests.cs" />
     <Compile Include="OpennessInstallationLocatorTests.cs" />
     <Compile Include="SclSourceInspectorTests.cs" />
     <Compile Include="TiaExportRequestTests.cs" />
+    <Compile Include="TiaLibrarySnapshotTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

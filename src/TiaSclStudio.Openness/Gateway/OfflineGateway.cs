@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using TiaSclStudio.Openness.Diagnostics;
 using TiaSclStudio.Openness.Discovery;
 
@@ -63,6 +64,23 @@ namespace TiaSclStudio.Openness.Gateway
                         OpennessDiagnosticCodes.HardwareIoCatalogUnavailable,
                         DiagnosticSeverity.Information,
                         "Hardware I/O discovery is unavailable because the gateway is offline. No TIA Portal state was accessed.")
+                });
+        }
+
+        public TiaLibrarySnapshot ReadLibrarySnapshot(CancellationToken cancellationToken)
+        {
+            return new TiaLibrarySnapshot(
+                false,
+                false,
+                string.Empty,
+                string.Empty,
+                null,
+                new[]
+                {
+                    new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.LibrarySnapshotUnavailable,
+                        DiagnosticSeverity.Information,
+                        "PLC library readback is unavailable because the gateway is offline. No TIA Portal state was accessed.")
                 });
         }
 
