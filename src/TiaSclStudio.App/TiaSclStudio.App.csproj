@@ -61,6 +61,18 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="UdtEditorWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="UdtLibraryWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="SclImportPreviewWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="NodePropertiesWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -105,6 +117,9 @@
     <Compile Include="MainWindow.BlockEditor.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.SclImport.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.CanvasEditing.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -123,7 +138,18 @@
     <Compile Include="BlockEditorWindow.xaml.cs">
       <DependentUpon>BlockEditorWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="UdtEditorWindow.xaml.cs">
+      <DependentUpon>UdtEditorWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="UdtLibraryWindow.xaml.cs">
+      <DependentUpon>UdtLibraryWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="BlockLibraryEditorLogic.cs" />
+    <Compile Include="UdtLibraryEditorLogic.cs" />
+    <Compile Include="SclImportApplicationLogic.cs" />
+    <Compile Include="SclImportPreviewWindow.xaml.cs">
+      <DependentUpon>SclImportPreviewWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="NodePropertiesWindow.xaml.cs">
       <DependentUpon>NodePropertiesWindow.xaml</DependentUpon>
     </Compile>

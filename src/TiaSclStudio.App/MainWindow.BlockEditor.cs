@@ -97,6 +97,37 @@ namespace TiaSclStudio.App
             EditSelectedBlock();
         }
 
+        private void ManageUdt_Click(object sender, RoutedEventArgs e)
+        {
+            if (!EnsureModelEditingAvailable() || _project == null || _project.Plant == null)
+            {
+                return;
+            }
+
+            var editor = new UdtLibraryWindow(_project)
+            {
+                Owner = this
+            };
+            if (editor.ShowDialog() != true || editor.EditedDataTypes == null)
+            {
+                return;
+            }
+
+            var selectedBlockId = GetSelectedLibraryBlockId();
+            if (!TryCommitSemanticEdit(
+                    "Изменение библиотеки UDT",
+                    () => UdtLibraryEditorLogic.Apply(_project, editor.EditedDataTypes)))
+            {
+                return;
+            }
+
+            RefreshLibrary(selectedBlockId);
+            _interactionDiagnostics.Clear();
+            RenderDiagram();
+            RefreshCompilation(false);
+            SetStatus("Библиотека UDT обновлена: типов " + _project.Plant.DataTypes.Count);
+        }
+
         private void EditSelectedBlock()
         {
             if (!EnsureModelEditingAvailable())

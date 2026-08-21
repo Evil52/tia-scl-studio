@@ -46,8 +46,11 @@
     <Compile Include="ProjectStorageTests.cs" />
     <Compile Include="ProjectValidatorTests.cs" />
     <Compile Include="PlcAddressingTests.cs" />
+    <Compile Include="PlcDataTypesTests.cs" />
+    <Compile Include="SclLibrarySourceParserTests.cs" />
     <Compile Include="SclGeneratorTests.cs" />
     <Compile Include="SclNameTests.cs" />
+    <Compile Include="UdtProjectRegressionTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -733,7 +733,7 @@ namespace TiaSclStudio.Diagram.Generation
 
                 sources.Add(new GeneratedSource(
                     block.Name + ".scl",
-                    generator.GenerateBlock(block),
+                    generator.GenerateBlock(block, project.DataTypes),
                     GeneratedSourceKind.Block,
                     order++));
             }

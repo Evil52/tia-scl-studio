@@ -50,6 +50,15 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- UDT library editor with create/edit/delete/reorder operations, nested UDT references,
+  dependency ordering, safe rename propagation and referenced-type deletion protection.
+- A shared strict PLC type catalogue for FB/FC interfaces, tags and UDT members. Block and
+  UDT editors now use non-editable type selectors with TIA basic types and project UDTs;
+  unknown arbitrary type strings are rejected before SCL generation.
+- Declaration-only import of FB, FC and UDT interfaces from external `.scl` sources. Import
+  has a conflict preview, defaults to preserving existing objects, validates the complete
+  future project, applies atomically as one Undo/Redo operation and never copies or executes
+  an imported block body.
 - PLC-tag address editor with `DI`/`DO`/`AI`/`AO`/`M` categories, compatible
   `Bool`/`Int`/`Word`/`Real` choices, canonical Siemens addresses and offline
   S7-1200/S7-1500 range checks. While connected, hardware I/O is selected only

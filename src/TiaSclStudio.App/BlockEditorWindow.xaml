@@ -120,9 +120,10 @@
 
                     <StackPanel Grid.Column="4">
                         <TextBlock Text="ВОЗВРАЩАЕМЫЙ ТИП FC" Style="{StaticResource EditorLabelStyle}" />
-                        <TextBox x:Name="ReturnTypeTextBox"
-                                 Style="{StaticResource EditorTextBoxStyle}"
-                                 Text="Void" />
+                        <ComboBox x:Name="ReturnTypeComboBox"
+                                  Height="31"
+                                  Style="{StaticResource DarkComboBoxStyle}"
+                                  IsEditable="False" />
                     </StackPanel>
 
                     <StackPanel Grid.Column="6">
@@ -206,10 +207,12 @@
                                             Width="155"
                                             Binding="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                             EditingElementStyle="{StaticResource GridEditingTextBoxStyle}" />
-                        <DataGridTextColumn Header="DATA TYPE"
-                                            Width="135"
-                                            Binding="{Binding DataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                            EditingElementStyle="{StaticResource GridEditingTextBoxStyle}" />
+                        <DataGridComboBoxColumn x:Name="DataTypeColumn"
+                                                Header="DATA TYPE"
+                                                Width="155"
+                                                SelectedItemBinding="{Binding DataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                ElementStyle="{StaticResource GridComboBoxStyle}"
+                                                EditingElementStyle="{StaticResource GridComboBoxStyle}" />
                         <DataGridTextColumn Header="INITIAL VALUE"
                                             Width="150"
                                             Binding="{Binding InitialValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"

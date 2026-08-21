@@ -23,7 +23,11 @@ namespace TiaSclStudio.Diagram.Validation
             var builder = new StringBuilder(dataType.Length);
             foreach (var character in dataType.Trim())
             {
-                if (!char.IsWhiteSpace(character))
+                // Quotation marks around a global UDT name are canonical SCL,
+                // while older project files may still contain the bare name.
+                // Core validation guarantees quotes cannot occur elsewhere in
+                // a valid type expression.
+                if (!char.IsWhiteSpace(character) && character != '"')
                 {
                     builder.Append(character);
                 }

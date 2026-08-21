@@ -1,0 +1,171 @@
+<Window x:Class="TiaSclStudio.App.SclImportPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Предпросмотр импорта SCL"
+        Width="980"
+        Height="690"
+        MinWidth="780"
+        MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource WindowBrush}"
+        Foreground="{StaticResource TextBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Padding="22,18"
+                Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock Text="ИМПОРТ FB / FC / UDT ИЗ SCL"
+                           FontSize="15"
+                           FontWeight="SemiBold" />
+                <TextBlock Margin="0,7,0,0"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           TextWrapping="Wrap"
+                           Text="Импортируется только объявление и интерфейс. Код между BEGIN и END_FUNCTION/END_FUNCTION_BLOCK не копируется и не выполняется; блок помечается ImportedInterfaceOnly." />
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="20,16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="3*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="2*" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="SummaryText"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource TextMutedBrush}" />
+                <CheckBox x:Name="ReplaceExistingCheckBox"
+                          Grid.Column="1"
+                          Margin="16,0,0,0"
+                          VerticalAlignment="Center"
+                          Foreground="{StaticResource WarningBrush}"
+                          Content="Обновить существующие объекты при конфликте"
+                          Checked="ReplaceExistingCheckBox_Changed"
+                          Unchecked="ReplaceExistingCheckBox_Changed" />
+            </Grid>
+
+            <DataGrid x:Name="ObjectsGrid"
+                      Grid.Row="1"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      CanUserReorderColumns="False"
+                      IsReadOnly="True"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal"
+                      Background="#0B1218"
+                      BorderBrush="{StaticResource BorderBrush}"
+                      Foreground="{StaticResource TextBrush}"
+                      RowBackground="#101A23"
+                      AlternatingRowBackground="#0E171F"
+                      HorizontalGridLinesBrush="{StaticResource BorderBrush}">
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="#16232E" />
+                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                        <Setter Property="BorderThickness" Value="0,0,1,1" />
+                        <Setter Property="Padding" Value="8,7" />
+                        <Setter Property="FontSize" Value="10" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
+                <DataGrid.CellStyle>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                        <Setter Property="BorderThickness" Value="0,0,1,0" />
+                        <Setter Property="Padding" Value="7,5" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.CellStyle>
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="ТИП" Binding="{Binding KindText}" Width="70" />
+                    <DataGridTextColumn Header="ИМЯ" Binding="{Binding Name}" Width="180" />
+                    <DataGridTextColumn Header="ДЕЙСТВИЕ" Binding="{Binding ActionText}" Width="130" />
+                    <DataGridTextColumn Header="СТРОКА" Binding="{Binding SourceLine}" Width="75" />
+                    <DataGridTextColumn Header="ПОДРОБНОСТИ" Binding="{Binding Detail}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <TextBlock Grid.Row="2"
+                       Margin="0,14,0,8"
+                       Text="ДИАГНОСТИКА И ОГРАНИЧЕНИЯ"
+                       FontSize="11"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource TextMutedBrush}" />
+
+            <ListBox x:Name="MessagesList"
+                     Grid.Row="3"
+                     Background="#0B1218"
+                     BorderBrush="{StaticResource BorderBrush}"
+                     Foreground="{StaticResource TextMutedBrush}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Margin="8,5"
+                                   Text="{Binding DisplayText}"
+                                   TextWrapping="Wrap">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Severity}" Value="Error">
+                                            <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+
+        <Border Grid.Row="2"
+                Padding="20,14"
+                Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="BlockingText"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource ErrorBrush}" />
+                <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                    <Button Width="130"
+                            Padding="10,8"
+                            Margin="0,0,10,0"
+                            Content="Отмена"
+                            Style="{StaticResource ActionButtonStyle}"
+                            Click="Cancel_Click" />
+                    <Button x:Name="ImportButton"
+                            Width="180"
+                            Padding="10,8"
+                            Content="Импортировать"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            Click="Import_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

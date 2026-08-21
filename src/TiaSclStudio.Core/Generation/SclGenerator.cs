@@ -30,10 +30,29 @@ namespace TiaSclStudio.Core.Generation
 
         public string GenerateBlock(BlockDefinition block)
         {
+            return GenerateBlock(block, new UdtDefinition[0]);
+        }
+
+        /// <summary>
+        /// Generates a block and canonicalizes every known UDT reference against
+        /// the supplied project catalogue. Legacy unquoted references therefore
+        /// leave the generator as TIA-safe quoted identifiers.
+        /// </summary>
+        public string GenerateBlock(
+            BlockDefinition block,
+            IEnumerable<UdtDefinition> dataTypes)
+        {
             if (block == null)
             {
                 throw new ArgumentNullException("block");
             }
+
+            if (dataTypes == null)
+            {
+                throw new ArgumentNullException("dataTypes");
+            }
+
+            var typeCatalogue = Safe(dataTypes);
 
             var builder = new StringBuilder();
             AppendComment(builder, block.Description, string.Empty);
@@ -45,12 +64,12 @@ namespace TiaSclStudio.Core.Generation
             else
             {
                 builder.Append("FUNCTION ").Append(QuoteGlobal(block.Name)).Append(" : ")
-                    .Append(NormalizeReturnType(block.ReturnType)).Append(NewLine);
+                    .Append(NormalizeReturnType(block.ReturnType, typeCatalogue)).Append(NewLine);
             }
 
             AppendOptimizedAccess(builder, block.OptimizedAccess);
             builder.Append("VERSION : ").Append(NormalizeVersion(block.Version)).Append(NewLine);
-            AppendInterface(builder, block.Interface, null);
+            AppendInterface(builder, block.Interface, null, typeCatalogue);
             builder.Append("BEGIN").Append(NewLine);
             AppendBody(builder, block.SclBody);
             builder.Append(block.Kind == BlockKind.FunctionBlock ? "END_FUNCTION_BLOCK" : "END_FUNCTION")
@@ -60,10 +79,19 @@ namespace TiaSclStudio.Core.Generation
 
         public string GenerateUdt(UdtDefinition dataType)
         {
+            return GenerateUdt(dataType, new[] { dataType });
+        }
+
+        private static string GenerateUdt(
+            UdtDefinition dataType,
+            IEnumerable<UdtDefinition> dataTypes)
+        {
             if (dataType == null)
             {
                 throw new ArgumentNullException("dataType");
             }
+
+            var typeCatalogue = Safe(dataTypes);
 
             var builder = new StringBuilder();
             AppendComment(builder, dataType.Comment, string.Empty);
@@ -72,7 +100,13 @@ namespace TiaSclStudio.Core.Generation
             builder.Append("   STRUCT").Append(NewLine);
             foreach (var member in Safe(dataType.Members))
             {
-                AppendDeclaration(builder, member.Name, member.DataType, member.InitialValue, member.Comment, "      ");
+                AppendDeclaration(
+                    builder,
+                    member.Name,
+                    CanonicalizeDataType(member.DataType, typeCatalogue, false),
+                    member.InitialValue,
+                    member.Comment,
+                    "      ");
             }
 
             builder.Append("   END_STRUCT;").Append(NewLine);
@@ -87,7 +121,10 @@ namespace TiaSclStudio.Core.Generation
                 throw new ArgumentNullException("dataTypes");
             }
 
-            return JoinSources(dataTypes.Select(GenerateUdt));
+            var typeCatalogue = Safe(dataTypes);
+            return JoinSources(
+                PlcDataTypes.OrderUdtsByDependency(typeCatalogue)
+                    .Select(dataType => GenerateUdt(dataType, typeCatalogue)));
         }
 
         public string GenerateInstanceDb(UnitDefinition unit, BlockDefinition block)
@@ -140,6 +177,14 @@ namespace TiaSclStudio.Core.Generation
 
         public string GenerateCallBlock(CallBlockDefinition callBlock, IEnumerable<BlockDefinition> blocks)
         {
+            return GenerateCallBlock(callBlock, blocks, new UdtDefinition[0]);
+        }
+
+        public string GenerateCallBlock(
+            CallBlockDefinition callBlock,
+            IEnumerable<BlockDefinition> blocks,
+            IEnumerable<UdtDefinition> dataTypes)
+        {
             if (callBlock == null)
             {
                 throw new ArgumentNullException("callBlock");
@@ -150,7 +195,13 @@ namespace TiaSclStudio.Core.Generation
                 throw new ArgumentNullException("blocks");
             }
 
+            if (dataTypes == null)
+            {
+                throw new ArgumentNullException("dataTypes");
+            }
+
             var blockList = blocks.ToList();
+            var typeCatalogue = Safe(dataTypes);
             var builder = new StringBuilder();
             AppendComment(builder, callBlock.Description, string.Empty);
 
@@ -161,7 +212,7 @@ namespace TiaSclStudio.Core.Generation
             else
             {
                 builder.Append("FUNCTION ").Append(QuoteGlobal(callBlock.Name)).Append(" : ")
-                    .Append(NormalizeReturnType(callBlock.ReturnType)).Append(NewLine);
+                    .Append(NormalizeReturnType(callBlock.ReturnType, typeCatalogue)).Append(NewLine);
             }
 
             AppendOptimizedAccess(builder, callBlock.OptimizedAccess);
@@ -179,7 +230,7 @@ namespace TiaSclStudio.Core.Generation
                 multiInstances.Add(new InstanceDeclaration(unit.Name, targetBlock.Name, unit.Comment));
             }
 
-            AppendInterface(builder, callBlock.Interface, multiInstances);
+            AppendInterface(builder, callBlock.Interface, multiInstances, typeCatalogue);
             builder.Append("BEGIN").Append(NewLine);
 
             foreach (var unit in OrderedUnits(callBlock.Units))
@@ -200,7 +251,7 @@ namespace TiaSclStudio.Core.Generation
                 throw new ArgumentNullException("project");
             }
 
-            return GenerateCallBlock(callBlock, project.Blocks);
+            return GenerateCallBlock(callBlock, project.Blocks, project.DataTypes);
         }
 
         public string GenerateCallBlockInstanceDb(CallBlockDefinition callBlock)
@@ -256,7 +307,7 @@ namespace TiaSclStudio.Core.Generation
 
                 result.Add(new GeneratedSource(
                     block.Name + ".scl",
-                    GenerateBlock(block),
+                    GenerateBlock(block, project.DataTypes),
                     GeneratedSourceKind.Block,
                     order++));
             }
@@ -275,7 +326,7 @@ namespace TiaSclStudio.Core.Generation
             {
                 result.Add(new GeneratedSource(
                     "99_" + callBlock.Name + ".scl",
-                    GenerateCallBlock(callBlock, project.Blocks),
+                    GenerateCallBlock(callBlock, project.Blocks, project.DataTypes),
                     GeneratedSourceKind.CallBlock,
                     order++));
 
@@ -429,22 +480,25 @@ namespace TiaSclStudio.Core.Generation
         private static void AppendInterface(
             StringBuilder builder,
             IEnumerable<InterfaceMember> members,
-            IEnumerable<InstanceDeclaration> instances)
+            IEnumerable<InstanceDeclaration> instances,
+            IEnumerable<UdtDefinition> dataTypes)
         {
             var memberList = Safe(members);
-            AppendSection(builder, "VAR_INPUT", memberList.Where(item => item.Section == InterfaceSection.Input), null);
-            AppendSection(builder, "VAR_OUTPUT", memberList.Where(item => item.Section == InterfaceSection.Output), null);
-            AppendSection(builder, "VAR_IN_OUT", memberList.Where(item => item.Section == InterfaceSection.InOut), null);
-            AppendSection(builder, "VAR", memberList.Where(item => item.Section == InterfaceSection.Static), instances);
-            AppendSection(builder, "VAR_TEMP", memberList.Where(item => item.Section == InterfaceSection.Temp), null);
-            AppendSection(builder, "VAR CONSTANT", memberList.Where(item => item.Section == InterfaceSection.Constant), null);
+            var typeCatalogue = Safe(dataTypes);
+            AppendSection(builder, "VAR_INPUT", memberList.Where(item => item.Section == InterfaceSection.Input), null, typeCatalogue);
+            AppendSection(builder, "VAR_OUTPUT", memberList.Where(item => item.Section == InterfaceSection.Output), null, typeCatalogue);
+            AppendSection(builder, "VAR_IN_OUT", memberList.Where(item => item.Section == InterfaceSection.InOut), null, typeCatalogue);
+            AppendSection(builder, "VAR", memberList.Where(item => item.Section == InterfaceSection.Static), instances, typeCatalogue);
+            AppendSection(builder, "VAR_TEMP", memberList.Where(item => item.Section == InterfaceSection.Temp), null, typeCatalogue);
+            AppendSection(builder, "VAR CONSTANT", memberList.Where(item => item.Section == InterfaceSection.Constant), null, typeCatalogue);
         }
 
         private static void AppendSection(
             StringBuilder builder,
             string header,
             IEnumerable<InterfaceMember> members,
-            IEnumerable<InstanceDeclaration> instances)
+            IEnumerable<InstanceDeclaration> instances,
+            IEnumerable<UdtDefinition> dataTypes)
         {
             var memberList = Safe(members);
             var instanceList = Safe(instances);
@@ -456,7 +510,13 @@ namespace TiaSclStudio.Core.Generation
             builder.Append(header).Append(NewLine);
             foreach (var member in memberList)
             {
-                AppendDeclaration(builder, member.Name, member.DataType, member.InitialValue, member.Comment, "   ");
+                AppendDeclaration(
+                    builder,
+                    member.Name,
+                    CanonicalizeDataType(member.DataType, dataTypes, false),
+                    member.InitialValue,
+                    member.Comment,
+                    "   ");
             }
 
             foreach (var instance in instanceList)
@@ -566,9 +626,30 @@ namespace TiaSclStudio.Core.Generation
             return "\"" + (name ?? string.Empty).Replace("\"", "\"\"") + "\"";
         }
 
-        private static string NormalizeReturnType(string returnType)
+        private static string NormalizeReturnType(
+            string returnType,
+            IEnumerable<UdtDefinition> dataTypes)
         {
-            return string.IsNullOrWhiteSpace(returnType) ? "Void" : SingleLine(returnType);
+            return string.IsNullOrWhiteSpace(returnType)
+                ? "Void"
+                : CanonicalizeDataType(returnType, dataTypes, true);
+        }
+
+        private static string CanonicalizeDataType(
+            string dataType,
+            IEnumerable<UdtDefinition> dataTypes,
+            bool allowVoid)
+        {
+            string canonical;
+            Guid udtId;
+            return PlcDataTypes.TryResolve(
+                dataType,
+                dataTypes,
+                allowVoid,
+                out canonical,
+                out udtId)
+                ? canonical
+                : SingleLine(dataType);
         }
 
         private static string NormalizeVersion(string version)

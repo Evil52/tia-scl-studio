@@ -50,6 +50,7 @@
     <Compile Include="DiagramValidatorTests.cs" />
     <Compile Include="PlcTypeCompatibilityTests.cs" />
     <Compile Include="TopologicalSorterTests.cs" />
+    <Compile Include="UdtPersistenceRegressionTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

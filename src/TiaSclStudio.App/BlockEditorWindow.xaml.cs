@@ -29,10 +29,15 @@ namespace TiaSclStudio.App
 
             _workingCopy = CloneBlock(source);
             _plant = plant ?? new PlantProject();
+            CanonicalizeKnownTypes(_workingCopy, _plant.DataTypes);
             _members = new ObservableCollection<InterfaceMember>(
                 _workingCopy.Interface.Select(CloneMember));
 
             SectionColumn.ItemsSource = Enum.GetValues(typeof(InterfaceSection));
+            var memberTypes = BuildTypeChoices(false, _workingCopy, _plant.DataTypes);
+            var returnTypes = BuildTypeChoices(true, _workingCopy, _plant.DataTypes);
+            DataTypeColumn.ItemsSource = memberTypes;
+            ReturnTypeComboBox.ItemsSource = returnTypes;
             InterfaceGrid.ItemsSource = _members;
 
             EditorTitleText.Text = isNew ? "НОВЫЙ БЛОК" : "РЕДАКТОР БЛОКА";
@@ -40,7 +45,7 @@ namespace TiaSclStudio.App
             BlockIdText.Text = "ID " + _workingCopy.Id.ToString("D");
             NameTextBox.Text = _workingCopy.Name;
             KindComboBox.SelectedIndex = _workingCopy.Kind == BlockKind.Function ? 1 : 0;
-            ReturnTypeTextBox.Text = string.IsNullOrWhiteSpace(_workingCopy.ReturnType)
+            ReturnTypeComboBox.SelectedItem = string.IsNullOrWhiteSpace(_workingCopy.ReturnType)
                 ? "Void"
                 : _workingCopy.ReturnType;
             VersionTextBox.Text = _workingCopy.Version;
@@ -60,15 +65,15 @@ namespace TiaSclStudio.App
 
         private void UpdateKindState()
         {
-            if (ReturnTypeTextBox == null || KindComboBox == null)
+            if (ReturnTypeComboBox == null || KindComboBox == null)
             {
                 return;
             }
 
             var isFunction = KindComboBox.SelectedIndex == 1;
-            ReturnTypeTextBox.IsEnabled = isFunction;
-            ReturnTypeTextBox.ToolTip = isFunction
-                ? "Тип результата FC. Укажите Void, если значение не возвращается."
+            ReturnTypeComboBox.IsEnabled = isFunction;
+            ReturnTypeComboBox.ToolTip = isFunction
+                ? "Тип результата FC: базовый тип или UDT. Выберите Void, если значение не возвращается."
                 : "FB не возвращает значение.";
         }
 
@@ -194,7 +199,7 @@ namespace TiaSclStudio.App
                 ? BlockKind.Function
                 : BlockKind.FunctionBlock;
             _workingCopy.ReturnType = _workingCopy.Kind == BlockKind.Function
-                ? (ReturnTypeTextBox.Text ?? string.Empty).Trim()
+                ? ((ReturnTypeComboBox.SelectedItem as string) ?? string.Empty).Trim()
                 : "Void";
             _workingCopy.Version = (VersionTextBox.Text ?? string.Empty).Trim();
             _workingCopy.Description = DescriptionTextBox.Text ?? string.Empty;
@@ -264,6 +269,12 @@ namespace TiaSclStudio.App
                 case "DATA_TYPE_REQUIRED":
                     text = "Для каждого элемента интерфейса необходимо указать тип данных.";
                     break;
+                case "UNKNOWN_DATA_TYPE":
+                    text = "Выберите базовый тип TIA или существующий пользовательский UDT из списка.";
+                    break;
+                case "UDT_REFERENCE_CYCLE":
+                    text = "Пользовательские типы не должны образовывать циклические ссылки.";
+                    break;
                 case "DUPLICATE_NAME":
                     text = "Имена элементов интерфейса не должны повторяться.";
                     break;
@@ -331,6 +342,50 @@ namespace TiaSclStudio.App
                 InitialValue = source.InitialValue ?? string.Empty,
                 Comment = source.Comment ?? string.Empty
             };
+        }
+
+        private static IList<string> BuildTypeChoices(
+            bool includeVoid,
+            BlockDefinition block,
+            IEnumerable<UdtDefinition> dataTypes)
+        {
+            var choices = PlcDataTypes.GetSelectableTypes(dataTypes, includeVoid).ToList();
+            var existing = (block.Interface ?? new List<InterfaceMember>())
+                .Select(member => member == null ? string.Empty : member.DataType)
+                .Concat(new[] { block.ReturnType });
+            foreach (var value in existing)
+            {
+                string canonical;
+                Guid udtId;
+                if (PlcDataTypes.TryResolve(value, dataTypes, includeVoid, out canonical, out udtId) &&
+                    !choices.Contains(canonical, StringComparer.OrdinalIgnoreCase))
+                {
+                    choices.Add(canonical);
+                }
+            }
+
+            return choices;
+        }
+
+        private static void CanonicalizeKnownTypes(
+            BlockDefinition block,
+            IEnumerable<UdtDefinition> dataTypes)
+        {
+            string canonical;
+            Guid udtId;
+            if (PlcDataTypes.TryResolve(block.ReturnType, dataTypes, true, out canonical, out udtId))
+            {
+                block.ReturnType = canonical;
+            }
+
+            foreach (var member in block.Interface ?? new List<InterfaceMember>())
+            {
+                if (member != null &&
+                    PlcDataTypes.TryResolve(member.DataType, dataTypes, false, out canonical, out udtId))
+                {
+                    member.DataType = canonical;
+                }
+            }
         }
     }
 }

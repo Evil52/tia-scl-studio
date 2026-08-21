@@ -300,6 +300,22 @@
                                         Style="{StaticResource ActionButtonStyle}"
                                         Click="EditSelectedBlock_Click" />
                             </UniformGrid>
+                            <Button x:Name="ManageUdtButton"
+                                    Content="UDT · Пользовательские типы"
+                                    Margin="0,8,0,0"
+                                    Padding="8,8"
+                                    HorizontalAlignment="Stretch"
+                                    Style="{StaticResource ActionButtonStyle}"
+                                    ToolTip="Создать, изменить или удалить пользовательский тип данных"
+                                    Click="ManageUdt_Click" />
+                            <Button x:Name="ImportSclLibraryButton"
+                                    Content="SCL · Импорт FB / FC / UDT"
+                                    Margin="0,8,0,0"
+                                    Padding="8,8"
+                                    HorizontalAlignment="Stretch"
+                                    Style="{StaticResource ActionButtonStyle}"
+                                    ToolTip="Безопасно прочитать объявления и интерфейсы из файла SCL; исполняемый код не импортируется"
+                                    Click="ImportSclLibrary_Click" />
                             <Button x:Name="AddSelectedBlockButton"
                                     Content="＋ Добавить выбранный на лист"
                                     Margin="0,8,0,0"

@@ -36,6 +36,8 @@
     <Reference Include="System.Core" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Importing\SclLibraryImportResult.cs" />
+    <Compile Include="Importing\SclLibrarySourceParser.cs" />
     <Compile Include="Generation\GeneratedSource.cs" />
     <Compile Include="Generation\SclGenerator.cs" />
     <Compile Include="Model\BlockDefinition.cs" />
@@ -52,6 +54,7 @@
     <Compile Include="Storage\ProjectStorage.cs" />
     <Compile Include="Validation\ModelValidationException.cs" />
     <Compile Include="Validation\PlcAddressing.cs" />
+    <Compile Include="Validation\PlcDataTypes.cs" />
     <Compile Include="Validation\ProjectValidator.cs" />
     <Compile Include="Validation\SclName.cs" />
     <Compile Include="Validation\SclText.cs" />

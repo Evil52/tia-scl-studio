@@ -47,10 +47,13 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DataTypePickerUiTests.cs" />
     <Compile Include="HardwareIoSelectionPolicyTests.cs" />
     <Compile Include="MainWindowSmokeTests.cs" />
+    <Compile Include="SclImportApplicationLogicTests.cs" />
     <Compile Include="SelfTestExecutableTests.cs" />
     <Compile Include="UserJourneyTests.cs" />
+    <Compile Include="UdtLibraryEditorLogicTests.cs" />
     <Compile Include="WpfHost.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

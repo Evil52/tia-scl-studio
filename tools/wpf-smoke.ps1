@@ -31,6 +31,7 @@ try
     $tagSourceButton = $window.FindName('TagSourcePaletteButton')
     $tagSinkButton = $window.FindName('TagSinkPaletteButton')
     $constantButton = $window.FindName('ConstantPaletteButton')
+    $importSclButton = $window.FindName('ImportSclLibraryButton')
     $addGroupButton = $window.FindName('AddGroupButton')
     $ungroupButton = $window.FindName('UngroupButton')
     $autoLayoutButton = $window.FindName('AutoLayoutButton')
@@ -54,6 +55,11 @@ try
         $null -eq $constantButton)
     {
         throw 'The Tag/Constant palette was not initialized.'
+    }
+
+    if ($null -eq $importSclButton)
+    {
+        throw 'The declaration-only SCL library import command was not initialized.'
     }
 
     if ($null -eq $addGroupButton -or $null -eq $ungroupButton)

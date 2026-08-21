@@ -62,7 +62,14 @@ namespace TiaSclStudio.Core.Validation
                 ValidatePersistableText(block.Description, path + ".Description", "The block description", result);
                 ValidatePersistableText(block.SclBody, path + ".SclBody", "The block body", result);
                 ValidateCollection(block.Interface, path + ".Interface", result);
-                ValidateBlockContract(block.Kind, block.ReturnType, block.Interface, path, ids, result);
+                ValidateBlockContract(
+                    block.Kind,
+                    block.ReturnType,
+                    block.Interface,
+                    dataTypes,
+                    path,
+                    ids,
+                    result);
             }
 
             foreach (var dataType in dataTypes)
@@ -74,8 +81,10 @@ namespace TiaSclStudio.Core.Validation
                 ValidateVersion(dataType.Version, path + ".Version", result);
                 ValidatePersistableText(dataType.Comment, path + ".Comment", "The data-type comment", result);
                 ValidateCollection(dataType.Members, path + ".Members", result);
-                ValidateUdtMembers(dataType.Members, path + ".Members", ids, result);
+                ValidateUdtMembers(dataType.Members, dataTypes, path + ".Members", ids, result);
             }
+
+            ValidateUdtDependencyGraph(dataTypes, result);
 
             foreach (var tag in tags)
             {
@@ -83,7 +92,7 @@ namespace TiaSclStudio.Core.Validation
                 ValidateId(tag.Id, path, ids, result);
                 ValidateName(tag.Name, path + ".Name", result);
                 RegisterGlobalSymbol(globalSymbols, tag.Name, path, result);
-                ValidateDataType(tag.DataType, path + ".DataType", result);
+                ValidateDataType(tag.DataType, dataTypes, false, path + ".DataType", result);
                 ValidatePersistableText(tag.Comment, path + ".Comment", "The tag comment", result);
                 if (string.IsNullOrWhiteSpace(tag.Address))
                 {
@@ -120,7 +129,14 @@ namespace TiaSclStudio.Core.Validation
                 ValidateVersion(callBlock.Version, path + ".Version", result);
                 ValidatePersistableText(callBlock.Description, path + ".Description", "The call-block description", result);
                 ValidateCollection(callBlock.Interface, path + ".Interface", result);
-                ValidateBlockContract(callBlock.Kind, callBlock.ReturnType, callBlock.Interface, path, ids, result);
+                ValidateBlockContract(
+                    callBlock.Kind,
+                    callBlock.ReturnType,
+                    callBlock.Interface,
+                    dataTypes,
+                    path,
+                    ids,
+                    result);
                 ValidateCollection(callBlock.Units, path + ".Units", result);
 
                 if (callBlock.Kind == BlockKind.FunctionBlock)
@@ -159,6 +175,7 @@ namespace TiaSclStudio.Core.Validation
             BlockKind kind,
             string returnType,
             IEnumerable<InterfaceMember> members,
+            IEnumerable<UdtDefinition> dataTypes,
             string path,
             IDictionary<Guid, string> ids,
             ValidationResult result)
@@ -175,6 +192,10 @@ namespace TiaSclStudio.Core.Validation
 
             // The return type is written into the FUNCTION header line itself.
             ValidateSingleLine(returnType, path + ".ReturnType", "A return type", result);
+            if (kind == BlockKind.Function && !string.IsNullOrWhiteSpace(returnType))
+            {
+                ValidateDataType(returnType, dataTypes, true, path + ".ReturnType", result);
+            }
 
             if (kind == BlockKind.FunctionBlock &&
                 !string.IsNullOrWhiteSpace(returnType) &&
@@ -190,7 +211,7 @@ namespace TiaSclStudio.Core.Validation
                 var memberPath = path + ".Interface[" + Display(member.Name) + "]";
                 ValidateId(member.Id, memberPath, ids, result);
                 ValidateName(member.Name, memberPath + ".Name", result);
-                ValidateDataType(member.DataType, memberPath + ".DataType", result);
+                ValidateDataType(member.DataType, dataTypes, false, memberPath + ".DataType", result);
                 ValidateSingleLine(
                     member.InitialValue,
                     memberPath + ".InitialValue",
@@ -212,6 +233,7 @@ namespace TiaSclStudio.Core.Validation
 
         private static void ValidateUdtMembers(
             IEnumerable<UdtMember> members,
+            IEnumerable<UdtDefinition> dataTypes,
             string path,
             IDictionary<Guid, string> ids,
             ValidationResult result)
@@ -228,7 +250,7 @@ namespace TiaSclStudio.Core.Validation
                 var memberPath = path + "[" + Display(member.Name) + "]";
                 ValidateId(member.Id, memberPath, ids, result);
                 ValidateName(member.Name, memberPath + ".Name", result);
-                ValidateDataType(member.DataType, memberPath + ".DataType", result);
+                ValidateDataType(member.DataType, dataTypes, false, memberPath + ".DataType", result);
                 ValidateSingleLine(
                     member.InitialValue,
                     memberPath + ".InitialValue",
@@ -586,7 +608,12 @@ namespace TiaSclStudio.Core.Validation
             }
         }
 
-        private static void ValidateDataType(string dataType, string path, ValidationResult result)
+        private static void ValidateDataType(
+            string dataType,
+            IEnumerable<UdtDefinition> dataTypes,
+            bool allowVoid,
+            string path,
+            ValidationResult result)
         {
             if (string.IsNullOrWhiteSpace(dataType))
             {
@@ -595,6 +622,52 @@ namespace TiaSclStudio.Core.Validation
             }
 
             ValidateSingleLine(dataType, path, "A data type", result);
+            string canonical;
+            Guid udtId;
+            if (!SclText.HasControlCharacters(dataType) &&
+                !PlcDataTypes.TryResolve(dataType, dataTypes, allowVoid, out canonical, out udtId))
+            {
+                result.Add(
+                    ValidationSeverity.Error,
+                    "UNKNOWN_DATA_TYPE",
+                    "The data type is not a supported TIA basic type or a declared UDT.",
+                    path);
+            }
+        }
+
+        private static void ValidateUdtDependencyGraph(
+            IList<UdtDefinition> dataTypes,
+            ValidationResult result)
+        {
+            var everyMemberResolves = dataTypes.All(dataType =>
+                Safe(dataType.Members).All(member =>
+                {
+                    string canonical;
+                    Guid udtId;
+                    return PlcDataTypes.TryResolve(
+                        member.DataType,
+                        dataTypes,
+                        false,
+                        out canonical,
+                        out udtId);
+                }));
+            if (!everyMemberResolves)
+            {
+                return;
+            }
+
+            try
+            {
+                PlcDataTypes.OrderUdtsByDependency(dataTypes);
+            }
+            catch (InvalidOperationException exception)
+            {
+                result.Add(
+                    ValidationSeverity.Error,
+                    "UDT_REFERENCE_CYCLE",
+                    exception.Message,
+                    "DataTypes");
+            }
         }
 
         /// <summary>
