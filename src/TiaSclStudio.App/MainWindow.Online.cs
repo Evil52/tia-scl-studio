@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -221,7 +222,7 @@ namespace TiaSclStudio.App
                         TiaHardwareIoCatalog hardwareIoCatalog = null;
                         if (connectedStatus != null && connectedStatus.IsConnected)
                         {
-                            hardwareIoCatalog = gateway.ReadHardwareIoCatalog();
+                            hardwareIoCatalog = gateway.ReadHardwareIoCatalog(CancellationToken.None);
                             connectedStatus = gateway.GetStatus();
                         }
                         if (replaceGateway)
@@ -890,7 +891,7 @@ namespace TiaSclStudio.App
             {
                 var response = await _tiaGatewayWorker.InvokeAsync(() =>
                 {
-                    var catalog = _tiaGateway.ReadHardwareIoCatalog();
+                    var catalog = _tiaGateway.ReadHardwareIoCatalog(CancellationToken.None);
                     var status = _tiaGateway.GetStatus();
                     return new GatewayHardwareIoResponse(catalog, status);
                 });
@@ -972,6 +973,10 @@ namespace TiaSclStudio.App
                 _tiaGatewayStatus.CanExport &&
                 IsConnectedToCurrentTarget();
             ReadTiaLibraryButton.IsEnabled = TiaLibraryImportUiLogic.CanReadLibrary(
+                _tiaGatewayStatus,
+                IsConnectedToCurrentTarget(),
+                _onlineBusy);
+            OpenTiaProjectInspectorButton.IsEnabled = TiaProjectInspectorLogic.CanStartRead(
                 _tiaGatewayStatus,
                 IsConnectedToCurrentTarget(),
                 _onlineBusy);
@@ -1214,12 +1219,13 @@ namespace TiaSclStudio.App
         {
             if (_onlineBusy)
             {
-                var libraryReadCancelled = CancelTiaLibraryRead();
+                var tiaReadCancelled = CancelTiaLibraryRead() |
+                    CancelTiaProjectInspectorRead();
                 e.Cancel = true;
                 MessageBox.Show(
                     this,
-                    libraryReadCancelled
-                        ? "Чтение библиотеки TIA отменяется. Закройте окно ещё раз после завершения отмены."
+                    tiaReadCancelled
+                        ? "Чтение данных TIA отменяется. Закройте окно ещё раз после завершения отмены."
                         : "Дождитесь завершения текущей операции TIA Openness.",
                     "Операция выполняется",
                     MessageBoxButton.OK,
@@ -1251,6 +1257,7 @@ namespace TiaSclStudio.App
         protected override void OnClosed(EventArgs e)
         {
             CancelTiaLibraryRead();
+            CancelTiaProjectInspectorRead();
             CleanupStagingDirectory();
             if (!_gatewayDisposed && _tiaGateway != null)
             {

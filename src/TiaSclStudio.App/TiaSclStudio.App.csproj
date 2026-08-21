@@ -73,6 +73,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="TiaProjectInspectorWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="NodePropertiesWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -123,6 +127,9 @@
     <Compile Include="MainWindow.TiaLibraryImport.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="MainWindow.TiaProjectInspector.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="MainWindow.CanvasEditing.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
@@ -151,6 +158,10 @@
     <Compile Include="UdtLibraryEditorLogic.cs" />
     <Compile Include="SclImportApplicationLogic.cs" />
     <Compile Include="TiaLibraryImportUiLogic.cs" />
+    <Compile Include="TiaProjectInspectorLogic.cs" />
+    <Compile Include="TiaProjectInspectorWindow.xaml.cs">
+      <DependentUpon>TiaProjectInspectorWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="SclImportPreviewWindow.xaml.cs">
       <DependentUpon>SclImportPreviewWindow.xaml</DependentUpon>
     </Compile>

@@ -49,6 +49,7 @@
     <Compile Include="SclSourceInspectorTests.cs" />
     <Compile Include="TiaExportRequestTests.cs" />
     <Compile Include="TiaLibrarySnapshotTests.cs" />
+    <Compile Include="TiaPlcTagCatalogTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

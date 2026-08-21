@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using TiaSclStudio.Openness.Diagnostics;
 using TiaSclStudio.Openness.Discovery;
 using TiaSclStudio.Openness.Gateway;
@@ -162,7 +163,7 @@ namespace TiaSclStudio.Openness.Tests
         {
             using (var gateway = new OfflineGateway())
             {
-                var catalog = gateway.ReadHardwareIoCatalog();
+                var catalog = gateway.ReadHardwareIoCatalog(default(System.Threading.CancellationToken));
 
                 Assert.False(catalog.IsAvailable);
                 Assert.Equal(TiaCpuFamily.Unknown, catalog.CpuFamily);
@@ -182,7 +183,7 @@ namespace TiaSclStudio.Openness.Tests
         {
             using (var gateway = new OfflineGateway())
             {
-                var catalog = gateway.ReadHardwareIoCatalog();
+                var catalog = gateway.ReadHardwareIoCatalog(default(System.Threading.CancellationToken));
 
                 Assert.Throws<NotSupportedException>(() =>
                     ((System.Collections.Generic.IList<TiaHardwareIoChannel>)catalog.Channels).Add(
@@ -197,6 +198,18 @@ namespace TiaSclStudio.Openness.Tests
                             "type",
                             "DI")));
             }
+        }
+
+        [Fact]
+        public void HardwareGatewayContractRequiresACancellationToken()
+        {
+            var method = typeof(ITiaGateway).GetMethod(nameof(ITiaGateway.ReadHardwareIoCatalog));
+
+            Assert.NotNull(method);
+            Assert.Equal(typeof(TiaHardwareIoCatalog), method.ReturnType);
+            var parameters = method.GetParameters();
+            Assert.Single(parameters);
+            Assert.Equal(typeof(CancellationToken), parameters[0].ParameterType);
         }
 
         /// <summary>

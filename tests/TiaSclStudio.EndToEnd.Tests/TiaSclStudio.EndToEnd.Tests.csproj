@@ -52,6 +52,7 @@
     <Compile Include="MainWindowSmokeTests.cs" />
     <Compile Include="SclImportApplicationLogicTests.cs" />
     <Compile Include="TiaLibraryImportUiTests.cs" />
+    <Compile Include="TiaProjectInspectorUiTests.cs" />
     <Compile Include="SelfTestExecutableTests.cs" />
     <Compile Include="UserJourneyTests.cs" />
     <Compile Include="UdtLibraryEditorLogicTests.cs" />

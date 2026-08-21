@@ -1,0 +1,255 @@
+<Window x:Class="TiaSclStudio.App.TiaProjectInspectorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Инспектор проекта TIA"
+        Width="1180"
+        Height="760"
+        MinWidth="880"
+        MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource WindowBrush}"
+        Foreground="{StaticResource TextBrush}">
+    <Window.Resources>
+        <Style x:Key="InspectorMonoCellTextStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Consolas" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Padding="22,17"
+                Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel>
+                    <TextBlock Text="ИНСПЕКТОР ПРОЕКТА TIA"
+                               FontSize="15"
+                               FontWeight="SemiBold" />
+                    <TextBlock x:Name="InspectorReadOnlyText"
+                               Margin="0,5,0,0"
+                               Text="Снимок подключённого PLC · только чтение · TIA Portal не изменяется"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                </StackPanel>
+                <Border HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Padding="10,5"
+                        Background="{StaticResource AccentMutedBrush}"
+                        BorderBrush="{StaticResource AccentBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4">
+                    <TextBlock Text="READ ONLY"
+                               FontFamily="Consolas"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentBrush}" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Row="1" Margin="20,16,20,0">
+            <Border Padding="14"
+                    Background="{StaticResource PanelAltBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="5">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="ЦЕЛЬ" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock x:Name="TargetText"
+                                   Margin="0,5,0,0"
+                                   FontFamily="Consolas"
+                                   FontWeight="SemiBold" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="ПРОЕКТ / СЕССИЯ" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock x:Name="ProjectPathText"
+                                   Margin="0,5,0,0"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
+                                   FontFamily="Consolas"
+                                   FontSize="10" />
+                        <TextBlock x:Name="ConnectionText"
+                                   Margin="0,3,0,0"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   FontSize="10" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Text="CPU / HARDWARE" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock x:Name="CpuText"
+                                   Margin="0,5,0,0"
+                                   TextWrapping="Wrap"
+                                   FontFamily="Consolas"
+                                   FontSize="10" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border x:Name="InspectorWarningPanel"
+                    Margin="0,10,0,0"
+                    Padding="12,9"
+                    Visibility="Collapsed"
+                    Background="#332819"
+                    BorderBrush="{StaticResource WarningBrush}"
+                    BorderThickness="1"
+                    CornerRadius="5">
+                <TextBlock x:Name="InspectorWarningText"
+                           Foreground="{StaticResource WarningBrush}"
+                           TextWrapping="Wrap" />
+            </Border>
+
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center"
+                           Margin="0,0,10,0"
+                           Text="ФИЛЬТР"
+                           Style="{StaticResource SectionTitleStyle}" />
+                <TextBox x:Name="FilterTextBox"
+                         Grid.Column="1"
+                         Height="32"
+                         MaxLength="4096"
+                         Padding="10,5"
+                         VerticalContentAlignment="Center"
+                         Background="#0C131A"
+                         Foreground="{StaticResource TextBrush}"
+                         BorderBrush="{StaticResource BorderStrongBrush}"
+                         BorderThickness="1"
+                         ToolTip="Поиск по имени, типу, адресу, таблице или пути модуля"
+                         KeyDown="FilterTextBox_KeyDown"
+                         TextChanged="FilterTextBox_TextChanged" />
+            </Grid>
+        </StackPanel>
+
+        <TabControl Grid.Row="2"
+                    Margin="20,14,20,16"
+                    Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1">
+            <TabControl.Resources>
+                <Style TargetType="TabItem">
+                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                    <Setter Property="Background" Value="#111922" />
+                    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                    <Setter Property="Padding" Value="16,9" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="TabItem">
+                                <Border x:Name="TabChrome"
+                                        Padding="{TemplateBinding Padding}"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="0,0,1,1">
+                                    <ContentPresenter ContentSource="Header"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource AccentMutedBrush}" />
+                                        <Setter TargetName="TabChrome" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource SurfaceBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </TabControl.Resources>
+
+            <TabItem x:Name="TagsTab" Header="PLC-ТЕГИ">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="TagStatusText"
+                               Margin="2,0,0,10"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                    <DataGrid x:Name="TagsGrid"
+                              Grid.Row="1"
+                              Style="{StaticResource DarkDataGridStyle}"
+                              AutoGenerateColumns="False"
+                              CanUserSortColumns="True"
+                              ClipboardCopyMode="IncludeHeader"
+                              SelectionMode="Extended"
+                              SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="ТАБЛИЦА / ПУТЬ" Width="260" Binding="{Binding TablePath}" ElementStyle="{StaticResource InspectorMonoCellTextStyle}" />
+                            <DataGridTextColumn Header="ИМЯ" Width="190" Binding="{Binding Name}" />
+                            <DataGridTextColumn Header="ТИП" Width="130" Binding="{Binding DataType}" ElementStyle="{StaticResource InspectorMonoCellTextStyle}" />
+                            <DataGridTextColumn Header="АДРЕС" Width="120" Binding="{Binding LogicalAddress}" ElementStyle="{StaticResource InspectorMonoCellTextStyle}" />
+                            <DataGridTextColumn Header="КОММЕНТАРИЙ" Width="*" Binding="{Binding Comment}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <TabItem x:Name="HardwareTab" Header="АППАРАТНЫЕ I/O">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="HardwareStatusText"
+                               Margin="2,0,0,10"
+                               Foreground="{StaticResource TextMutedBrush}" />
+                    <DataGrid x:Name="HardwareGrid"
+                              Grid.Row="1"
+                              Style="{StaticResource DarkDataGridStyle}"
+                              AutoGenerateColumns="False"
+                              CanUserSortColumns="True"
+                              ClipboardCopyMode="IncludeHeader"
+                              SelectionMode="Extended"
+                              SelectionUnit="FullRow">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="ВИД" Width="55" Binding="{Binding Kind}" />
+                            <DataGridTextColumn Header="#" Width="50" Binding="{Binding Number}" />
+                            <DataGridTextColumn Header="АДРЕС" Width="115" Binding="{Binding LogicalAddress}" ElementStyle="{StaticResource InspectorMonoCellTextStyle}" />
+                            <DataGridTextColumn Header="ШИРИНА" Width="80" Binding="{Binding Width}" />
+                            <DataGridTextColumn Header="ТИПЫ" Width="170" Binding="{Binding SuggestedDataTypes}" ElementStyle="{StaticResource InspectorMonoCellTextStyle}" />
+                            <DataGridTextColumn Header="МОДУЛЬ / ПУТЬ" Width="*" Binding="{Binding DeviceItemPath}" ElementStyle="{StaticResource InspectorMonoCellTextStyle}" />
+                            <DataGridTextColumn Header="ТИП МОДУЛЯ" Width="220" Binding="{Binding DeviceItemType}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <Border Grid.Row="3"
+                Padding="20,12"
+                Background="{StaticResource PanelBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock VerticalAlignment="Center"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           Text="Данные не редактируются и не импортируются в локальную модель." />
+                <Button Width="130"
+                        HorizontalAlignment="Right"
+                        Content="Закрыть"
+                        Style="{StaticResource ActionButtonStyle}"
+                        Click="Close_Click" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

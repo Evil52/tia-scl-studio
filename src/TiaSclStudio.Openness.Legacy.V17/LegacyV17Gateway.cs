@@ -231,11 +231,14 @@ namespace TiaSclStudio.Openness.Legacy.V17
             }
         }
 
-        public TiaHardwareIoCatalog ReadHardwareIoCatalog()
+        public TiaHardwareIoCatalog ReadHardwareIoCatalog(CancellationToken cancellationToken)
         {
             lock (syncRoot)
             {
-                var diagnostics = new List<OpennessDiagnostic>();
+                var diagnostics = new BoundedDiagnosticCollection(
+                    LegacyLibraryReadbackPolicy.MaximumHardwareDiagnosticCount,
+                    OpennessDiagnosticCodes.HardwareIoDiagnosticsSuppressed,
+                    selectedDeviceName);
                 if (disposed)
                 {
                     diagnostics.Add(Error(
@@ -254,7 +257,17 @@ namespace TiaSclStudio.Openness.Legacy.V17
 
                 try
                 {
-                    return BuildHardwareIoCatalog(diagnostics);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return BuildHardwareIoCatalog(cancellationToken, diagnostics);
+                }
+                catch (OperationCanceledException)
+                {
+                    diagnostics.Add(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.HardwareIoCatalogCancelled,
+                        DiagnosticSeverity.Information,
+                        "Configured hardware I/O discovery was cancelled. Partial hardware data was discarded.",
+                        selectedDeviceName));
+                    return UnavailableHardwareIoCatalog(diagnostics);
                 }
                 catch (NonRecoverableException exception)
                 {
@@ -280,6 +293,72 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         selectedDeviceName,
                         exception));
                     return UnavailableHardwareIoCatalog(diagnostics);
+                }
+            }
+        }
+
+        public TiaPlcTagCatalog ReadPlcTagCatalog(CancellationToken cancellationToken)
+        {
+            lock (syncRoot)
+            {
+                var diagnostics = new BoundedDiagnosticCollection(
+                    LegacyLibraryReadbackPolicy.MaximumTagDiagnosticCount,
+                    OpennessDiagnosticCodes.PlcTagCatalogDiagnosticsSuppressed,
+                    selectedSoftwareName);
+                var tags = new List<TiaPlcTagCatalogItem>();
+                if (disposed)
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.PlcTagCatalogUnavailable,
+                        "The V17 gateway has already been disposed."));
+                    return UnavailablePlcTagCatalog(diagnostics);
+                }
+
+                if (tiaPortal == null || project == null || plcSoftware == null || selectedCpuItem == null)
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.PlcTagCatalogUnavailable,
+                        "Connect to a project and select one PLC before reading configured PLC tags."));
+                    return UnavailablePlcTagCatalog(diagnostics);
+                }
+
+                try
+                {
+                    return BuildPlcTagCatalog(cancellationToken, tags, diagnostics);
+                }
+                catch (OperationCanceledException)
+                {
+                    diagnostics.Add(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.PlcTagCatalogCancelled,
+                        DiagnosticSeverity.Information,
+                        "PLC-tag discovery was cancelled between tables or tags. The returned catalog is partial.",
+                        selectedSoftwareName));
+                    return AvailablePlcTagCatalog(false, tags, diagnostics);
+                }
+                catch (NonRecoverableException exception)
+                {
+                    HandleSessionLost(
+                        diagnostics,
+                        "TIA Portal closed the session while reading PLC tags: " + exception.Message,
+                        exception);
+                    return UnavailablePlcTagCatalog(diagnostics, tags);
+                }
+                catch (EngineeringSecurityException exception)
+                {
+                    HandleAccessDenied(
+                        diagnostics,
+                        "TIA Openness access was denied while reading PLC tags: " + exception.Message,
+                        exception);
+                    return UnavailablePlcTagCatalog(diagnostics, tags);
+                }
+                catch (Exception exception)
+                {
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                        "PLC-tag discovery failed: " + exception.Message,
+                        selectedSoftwareName,
+                        exception));
+                    return AvailablePlcTagCatalog(false, tags, diagnostics);
                 }
             }
         }
@@ -834,8 +913,10 @@ namespace TiaSclStudio.Openness.Legacy.V17
         }
 
         private TiaHardwareIoCatalog BuildHardwareIoCatalog(
+            CancellationToken cancellationToken,
             IList<OpennessDiagnostic> diagnostics)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var cpuTypeIdentifier = selectedCpuItem.TypeIdentifier ?? string.Empty;
             var cpuTypeName = TryReadStringAttribute(selectedCpuItem, "TypeName");
             var cpuModel = FirstNonEmpty(cpuTypeName, selectedCpuItem.Name, selectedSoftwareName);
@@ -854,13 +935,47 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     cpuModel,
                     cpuTypeIdentifier,
                     null,
+                    SealDiagnostics(diagnostics));
+            }
+
+            bool pathMapComplete;
+            var itemPaths = BuildDeviceItemPathMap(
+                project,
+                cancellationToken,
+                diagnostics,
+                out pathMapComplete);
+            if (!pathMapComplete)
+            {
+                return UnavailableHardwareIoCatalog(
+                    cpuFamily,
+                    cpuModel,
+                    cpuTypeIdentifier,
                     diagnostics);
             }
 
-            var itemPaths = BuildDeviceItemPathMap(project);
+            var isComplete = true;
             var registeredItems = new List<DeviceItem>();
+            var registeredItemSet = new HashSet<DeviceItem>();
+            var registeredAddressCount = 0;
             foreach (var registeredAddress in addressController.RegisteredAddresses)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                registeredAddressCount++;
+                if (registeredAddressCount >
+                    LegacyLibraryReadbackPolicy.MaximumHardwareRegisteredAddressCount)
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.HardwareIoCatalogReadFailed,
+                        "Configured hardware I/O discovery was rejected because registered addresses exceed the safety limit of " +
+                        LegacyLibraryReadbackPolicy.MaximumHardwareRegisteredAddressCount.ToString(CultureInfo.InvariantCulture) + ".",
+                        selectedDeviceName));
+                    return UnavailableHardwareIoCatalog(
+                        cpuFamily,
+                        cpuModel,
+                        cpuTypeIdentifier,
+                        diagnostics);
+                }
+
                 if (registeredAddress.IoType != AddressIoType.Input &&
                     registeredAddress.IoType != AddressIoType.Output)
                 {
@@ -870,6 +985,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 var deviceItem = registeredAddress.Parent as DeviceItem;
                 if (deviceItem == null)
                 {
+                    isComplete = false;
                     diagnostics.Add(new OpennessDiagnostic(
                         OpennessDiagnosticCodes.HardwareIoChannelUnsupported,
                         DiagnosticSeverity.Warning,
@@ -878,25 +994,72 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     continue;
                 }
 
-                if (!registeredItems.Any(existing => ReferenceEquals(existing, deviceItem) || existing.Equals(deviceItem)))
+                if (registeredItemSet.Add(deviceItem))
                 {
                     registeredItems.Add(deviceItem);
+                    if (registeredItems.Count >
+                        LegacyLibraryReadbackPolicy.MaximumHardwareDeviceItemCount)
+                    {
+                        diagnostics.Add(Error(
+                            OpennessDiagnosticCodes.HardwareIoCatalogReadFailed,
+                            "Configured hardware I/O discovery was rejected because registered device items exceed the safety limit of " +
+                            LegacyLibraryReadbackPolicy.MaximumHardwareDeviceItemCount.ToString(CultureInfo.InvariantCulture) + ".",
+                            selectedDeviceName));
+                        return UnavailableHardwareIoCatalog(
+                            cpuFamily,
+                            cpuModel,
+                            cpuTypeIdentifier,
+                            diagnostics);
+                    }
                 }
             }
 
             var channels = new List<TiaHardwareIoChannel>();
+            var visitedChannelCount = 0;
             foreach (var item in registeredItems)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 string itemPath;
                 if (!itemPaths.TryGetValue(item, out itemPath))
                 {
-                    itemPath = selectedDeviceName + "/" + item.Name;
+                    var itemName = item.Name ?? string.Empty;
+                    var fallbackLength = (long)selectedDeviceName.Length + 1L + itemName.Length;
+                    if (fallbackLength > LegacyLibraryReadbackPolicy.MaximumHardwarePathCharacters)
+                    {
+                        diagnostics.Add(Error(
+                            OpennessDiagnosticCodes.HardwareIoCatalogReadFailed,
+                            "A registered hardware item path exceeds the configured safety limit.",
+                            selectedDeviceName));
+                        return UnavailableHardwareIoCatalog(
+                            cpuFamily,
+                            cpuModel,
+                            cpuTypeIdentifier,
+                            diagnostics);
+                    }
+
+                    itemPath = selectedDeviceName + "/" + itemName;
                 }
 
                 var itemTypeIdentifier = item.TypeIdentifier ?? string.Empty;
                 var itemTypeName = TryReadStringAttribute(item, "TypeName");
                 foreach (var channel in item.Channels)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    visitedChannelCount++;
+                    if (visitedChannelCount > LegacyLibraryReadbackPolicy.MaximumHardwareChannelCount)
+                    {
+                        diagnostics.Add(Error(
+                            OpennessDiagnosticCodes.HardwareIoCatalogReadFailed,
+                            "Configured hardware I/O discovery was rejected because hardware channels exceed the safety limit of " +
+                            LegacyLibraryReadbackPolicy.MaximumHardwareChannelCount.ToString(CultureInfo.InvariantCulture) + ".",
+                            itemPath));
+                        return UnavailableHardwareIoCatalog(
+                            cpuFamily,
+                            cpuModel,
+                            cpuTypeIdentifier,
+                            diagnostics);
+                    }
+
                     try
                     {
                         string unsupportedReason;
@@ -912,6 +1075,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         }
                         else if (!string.IsNullOrWhiteSpace(unsupportedReason))
                         {
+                            isComplete = false;
                             diagnostics.Add(new OpennessDiagnostic(
                                 OpennessDiagnosticCodes.HardwareIoChannelUnsupported,
                                 DiagnosticSeverity.Warning,
@@ -929,6 +1093,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     }
                     catch (Exception exception)
                     {
+                        isComplete = false;
                         diagnostics.Add(ExceptionDiagnostic(
                             OpennessDiagnosticCodes.HardwareIoChannelUnsupported,
                             "A configured hardware channel was skipped because its exact V17 address or width could not be read: " + exception.Message,
@@ -954,13 +1119,1117 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 " exact supported channel(s).",
                 selectedDeviceName + "/" + selectedSoftwareName));
 
+            if (!isComplete)
+            {
+                diagnostics.Add(new OpennessDiagnostic(
+                    OpennessDiagnosticCodes.HardwareIoCatalogPartial,
+                    DiagnosticSeverity.Warning,
+                    "Configured hardware I/O discovery is partial because one or more addresses or channels could not be represented safely.",
+                    selectedDeviceName + "/" + selectedSoftwareName));
+            }
+
             return new TiaHardwareIoCatalog(
                 true,
                 cpuFamily,
                 cpuModel,
                 cpuTypeIdentifier,
                 channels,
-                diagnostics);
+                SealDiagnostics(diagnostics));
+        }
+
+        private TiaPlcTagCatalog BuildPlcTagCatalog(
+            CancellationToken cancellationToken,
+            IList<TiaPlcTagCatalogItem> tags,
+            IList<OpennessDiagnostic> diagnostics)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool collectionComplete;
+            bool collectionLimitExceeded;
+            List<string> scopePaths;
+            var tables = CollectPlcTagTables(
+                cancellationToken,
+                diagnostics,
+                out collectionComplete,
+                out collectionLimitExceeded,
+                out scopePaths);
+            if (collectionLimitExceeded)
+            {
+                return AvailablePlcTagCatalog(false, null, diagnostics);
+            }
+
+            var initialTopologySignature = BuildPlcTagTopologySignature(scopePaths, tables);
+
+            if (tables.Count > LegacyLibraryReadbackPolicy.MaximumTagTableCount)
+            {
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "PLC-tag discovery was rejected because " +
+                    tables.Count.ToString(CultureInfo.InvariantCulture) +
+                    " tag tables exceed the safety limit of " +
+                    LegacyLibraryReadbackPolicy.MaximumTagTableCount.ToString(CultureInfo.InvariantCulture) + ".",
+                    selectedSoftwareName));
+                return AvailablePlcTagCatalog(false, tags, diagnostics);
+            }
+
+            var duplicateGroups = tables
+                .GroupBy(table => table.TablePath, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .ToList();
+            var duplicatePaths = new HashSet<string>(
+                duplicateGroups.Select(group => group.Key),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var duplicateGroup in duplicateGroups)
+            {
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "More than one TIA tag table maps to stable path '" +
+                    duplicateGroup.Key + "'. Ambiguous tables were not returned.",
+                    duplicateGroup.Key));
+            }
+
+            var readableTables = tables
+                .Where(table => !duplicatePaths.Contains(table.TablePath))
+                .OrderBy(table => table.TablePath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var isComplete = collectionComplete && duplicatePaths.Count == 0;
+            var expectedCounts = new Dictionary<PlcTagTableCandidate, int>();
+            var countedTables = new List<PlcTagTableCandidate>();
+            long expectedTagCount = 0;
+            foreach (var table in readableTables)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int count;
+                try
+                {
+                    count = table.Table.Tags.Count;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (NonRecoverableException)
+                {
+                    throw;
+                }
+                catch (EngineeringSecurityException exception)
+                {
+                    isComplete = false;
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                        "A protected or inaccessible tag table was skipped while its tag count was read: " +
+                        exception.Message,
+                        table.TablePath,
+                        exception,
+                        DiagnosticSeverity.Warning));
+                    continue;
+                }
+                catch (Exception exception)
+                {
+                    isComplete = false;
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                        "A tag table was skipped because its tag count could not be read safely: " +
+                        exception.Message,
+                        table.TablePath,
+                        exception,
+                        DiagnosticSeverity.Warning));
+                    continue;
+                }
+
+                if (count < 0)
+                {
+                    isComplete = false;
+                    diagnostics.Add(new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                        DiagnosticSeverity.Warning,
+                        "TIA reported a negative tag count. The inconsistent table was skipped.",
+                        table.TablePath));
+                    continue;
+                }
+
+                expectedCounts.Add(table, count);
+                countedTables.Add(table);
+                expectedTagCount += count;
+                if (expectedTagCount > LegacyLibraryReadbackPolicy.MaximumTagCount)
+                {
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                        "PLC-tag discovery was rejected because configured tags exceed the safety limit of " +
+                        LegacyLibraryReadbackPolicy.MaximumTagCount.ToString(CultureInfo.InvariantCulture) + ".",
+                        selectedSoftwareName));
+                    return AvailablePlcTagCatalog(false, null, diagnostics);
+                }
+            }
+
+            var stopForLimit = false;
+            long totalCharacters = 0;
+            Language editingLanguage = null;
+            Language referenceLanguage = null;
+            try
+            {
+                editingLanguage = project.LanguageSettings.EditingLanguage;
+                referenceLanguage = project.LanguageSettings.ReferenceLanguage;
+            }
+            catch (NonRecoverableException)
+            {
+                throw;
+            }
+            catch (EngineeringSecurityException exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                    "Project language settings could not be read. Tag comments will use a deterministic available-language fallback: " +
+                    exception.Message,
+                    selectedSoftwareName,
+                    exception,
+                    DiagnosticSeverity.Warning));
+            }
+            catch (Exception exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                    "Project language settings could not be read. Tag comments will use a deterministic available-language fallback: " +
+                    exception.Message,
+                    selectedSoftwareName,
+                    exception,
+                    DiagnosticSeverity.Warning));
+            }
+
+            foreach (var table in countedTables)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var tableStartIndex = tags.Count;
+                var tableStartCharacters = totalCharacters;
+                var encounteredTags = 0;
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var tableAmbiguous = false;
+                try
+                {
+                    foreach (var tag in table.Table.Tags)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        encounteredTags++;
+                        if (encounteredTags > expectedCounts[table])
+                        {
+                            stopForLimit = true;
+                            isComplete = false;
+                            diagnostics.Add(Error(
+                                OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                                "The tag table changed or exceeded the configured safety limit while it was being read.",
+                                table.TablePath));
+                            break;
+                        }
+
+                        try
+                        {
+                            long itemCharacters;
+                            bool itemComplete;
+                            var item = CreatePlcTagCatalogItem(
+                                table.TablePath,
+                                tag,
+                                editingLanguage,
+                                referenceLanguage,
+                                diagnostics,
+                                out itemCharacters,
+                                out itemComplete);
+                            if (!itemComplete)
+                            {
+                                isComplete = false;
+                            }
+
+                            if (!names.Add(item.Name))
+                            {
+                                tableAmbiguous = true;
+                                isComplete = false;
+                                diagnostics.Add(Error(
+                                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                                    "The tag table contains duplicate tag name '" + item.Name +
+                                    "'. The ambiguous table was not returned.",
+                                    table.TablePath));
+                                continue;
+                            }
+
+                            if (totalCharacters + itemCharacters >
+                                LegacyLibraryReadbackPolicy.MaximumTagCatalogCharacters)
+                            {
+                                stopForLimit = true;
+                                isComplete = false;
+                                diagnostics.Add(Error(
+                                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                                    "PLC-tag discovery stopped because returned text exceeds the total safety limit of " +
+                                    LegacyLibraryReadbackPolicy.MaximumTagCatalogCharacters.ToString(CultureInfo.InvariantCulture) +
+                                    " characters.",
+                                    table.TablePath));
+                                break;
+                            }
+
+                            tags.Add(item);
+                            totalCharacters += itemCharacters;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (NonRecoverableException)
+                        {
+                            throw;
+                        }
+                        catch (EngineeringSecurityException exception)
+                        {
+                            isComplete = false;
+                            diagnostics.Add(ExceptionDiagnostic(
+                                OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                                "A protected or inaccessible PLC tag was skipped: " + exception.Message,
+                                table.TablePath,
+                                exception,
+                                DiagnosticSeverity.Warning));
+                        }
+                        catch (Exception exception)
+                        {
+                            isComplete = false;
+                            diagnostics.Add(ExceptionDiagnostic(
+                                OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                                "A PLC tag could not be represented safely and was skipped: " + exception.Message,
+                                table.TablePath,
+                                exception,
+                                DiagnosticSeverity.Warning));
+                        }
+                    }
+
+                    if (stopForLimit)
+                    {
+                        RemoveTagItemsFrom(tags, tableStartIndex);
+                        totalCharacters = tableStartCharacters;
+                        break;
+                    }
+
+                    var finalTimestamp = table.Table.ModifiedTimeStamp;
+                    if (encounteredTags != expectedCounts[table] ||
+                        finalTimestamp != table.ModifiedTimeStamp ||
+                        tableAmbiguous)
+                    {
+                        RemoveTagItemsFrom(tags, tableStartIndex);
+                        totalCharacters = tableStartCharacters;
+                        isComplete = false;
+                        if (!tableAmbiguous)
+                        {
+                            diagnostics.Add(new OpennessDiagnostic(
+                                OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                                DiagnosticSeverity.Warning,
+                                "The tag table changed while it was being read. Its inconsistent partial data was discarded.",
+                                table.TablePath));
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    RemoveTagItemsFrom(tags, tableStartIndex);
+                    throw;
+                }
+                catch (NonRecoverableException)
+                {
+                    RemoveTagItemsFrom(tags, tableStartIndex);
+                    throw;
+                }
+                catch (EngineeringSecurityException exception)
+                {
+                    RemoveTagItemsFrom(tags, tableStartIndex);
+                    totalCharacters = tableStartCharacters;
+                    isComplete = false;
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                        "A protected or inaccessible tag table was skipped: " + exception.Message,
+                        table.TablePath,
+                        exception,
+                        DiagnosticSeverity.Warning));
+                }
+                catch (Exception exception)
+                {
+                    RemoveTagItemsFrom(tags, tableStartIndex);
+                    totalCharacters = tableStartCharacters;
+                    isComplete = false;
+                    diagnostics.Add(ExceptionDiagnostic(
+                        OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                        "A tag table could not be read consistently and was skipped: " + exception.Message,
+                        table.TablePath,
+                        exception,
+                        DiagnosticSeverity.Warning));
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            bool finalCollectionComplete;
+            bool finalCollectionLimitExceeded;
+            List<string> finalScopePaths;
+            var finalTables = CollectPlcTagTables(
+                cancellationToken,
+                diagnostics,
+                out finalCollectionComplete,
+                out finalCollectionLimitExceeded,
+                out finalScopePaths);
+            if (finalCollectionLimitExceeded)
+            {
+                tags.Clear();
+                isComplete = false;
+            }
+            else
+            {
+                var finalTopologySignature = BuildPlcTagTopologySignature(
+                    finalScopePaths,
+                    finalTables);
+                if (!string.Equals(
+                    initialTopologySignature,
+                    finalTopologySignature,
+                    StringComparison.Ordinal))
+                {
+                    tags.Clear();
+                    isComplete = false;
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                        "The PLC tag-table or software-unit topology changed while it was being read. The mixed snapshot was discarded; run discovery again.",
+                        selectedSoftwareName));
+                }
+
+                if (!finalCollectionComplete)
+                {
+                    isComplete = false;
+                }
+            }
+
+            diagnostics.Add(new OpennessDiagnostic(
+                OpennessDiagnosticCodes.PlcTagCatalogRead,
+                DiagnosticSeverity.Information,
+                "PLC-tag discovery completed with " +
+                tags.Count.ToString(CultureInfo.InvariantCulture) +
+                " tag(s)" + (isComplete ? "." : "; the catalog is partial."),
+                selectedDeviceName + "/" + selectedSoftwareName));
+            return AvailablePlcTagCatalog(isComplete, tags, diagnostics);
+        }
+
+        private List<PlcTagTableCandidate> CollectPlcTagTables(
+            CancellationToken cancellationToken,
+            IList<OpennessDiagnostic> diagnostics,
+            out bool isComplete,
+            out bool limitExceeded,
+            out List<string> scopePaths)
+        {
+            var result = new List<PlcTagTableCandidate>();
+            scopePaths = new List<string>();
+            isComplete = true;
+            limitExceeded = false;
+            var visitedGroupCount = 0;
+            var visitedUnitCount = 0;
+            long topologyCharacters = 0;
+
+            if (!TryAddTagTopologyPath(
+                LegacyLibraryReadbackPolicy.GetRootTagScopePath(),
+                scopePaths,
+                diagnostics,
+                ref topologyCharacters,
+                ref isComplete,
+                ref limitExceeded))
+            {
+                return result;
+            }
+
+            // Failure to obtain the selected PLC's root scope is a catalog-wide failure and
+            // intentionally escapes to ReadPlcTagCatalog. Once the scope exists, failures are
+            // isolated to the protected table/group/unit wherever possible.
+            var root = plcSoftware.TagTableGroup;
+            AddPlcTagScopeTables(
+                root,
+                LegacyLibraryReadbackPolicy.GetRootTagScopePath(),
+                string.Empty,
+                0,
+                cancellationToken,
+                result,
+                diagnostics,
+                ref visitedGroupCount,
+                ref topologyCharacters,
+                ref isComplete,
+                ref limitExceeded);
+            if (limitExceeded)
+            {
+                return result;
+            }
+
+            PlcUnitProvider unitProvider;
+            try
+            {
+                unitProvider = plcSoftware.GetService<PlcUnitProvider>();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (NonRecoverableException)
+            {
+                throw;
+            }
+            catch (EngineeringSecurityException exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                    "Software-unit tag scopes could not be accessed and were skipped: " + exception.Message,
+                    selectedSoftwareName,
+                    exception,
+                    DiagnosticSeverity.Warning));
+                return result;
+            }
+            catch (Exception exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "Software-unit tag scopes could not be enumerated and were skipped: " + exception.Message,
+                    selectedSoftwareName,
+                    exception,
+                    DiagnosticSeverity.Warning));
+                return result;
+            }
+
+            if (unitProvider == null)
+            {
+                return result;
+            }
+
+            PlcUnitSystemGroup unitGroup;
+            try
+            {
+                unitGroup = unitProvider.UnitGroup;
+            }
+            catch (NonRecoverableException)
+            {
+                throw;
+            }
+            catch (EngineeringSecurityException exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                    "Software-unit tag scopes could not be accessed and were skipped: " + exception.Message,
+                    selectedSoftwareName,
+                    exception,
+                    DiagnosticSeverity.Warning));
+                return result;
+            }
+            catch (Exception exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "Software-unit tag scopes could not be enumerated and were skipped: " + exception.Message,
+                    selectedSoftwareName,
+                    exception,
+                    DiagnosticSeverity.Warning));
+                return result;
+            }
+
+            if (unitGroup == null)
+            {
+                return result;
+            }
+
+            try
+            {
+                foreach (var unit in unitGroup.Units)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (unit == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        visitedUnitCount++;
+                        if (visitedUnitCount > LegacyLibraryReadbackPolicy.MaximumSoftwareUnitCount)
+                        {
+                            limitExceeded = true;
+                            isComplete = false;
+                            diagnostics.Add(Error(
+                                OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                                "PLC-tag discovery was rejected because software units exceed the safety limit of " +
+                                LegacyLibraryReadbackPolicy.MaximumSoftwareUnitCount.ToString(CultureInfo.InvariantCulture) + ".",
+                                selectedSoftwareName));
+                            break;
+                        }
+
+                        var unitName = unit.Name;
+                        var unitScopePath = LegacyLibraryReadbackPolicy.GetUnitTagScopePath(unitName);
+                        if (!TryAddTagTopologyPath(
+                            unitScopePath,
+                            scopePaths,
+                            diagnostics,
+                            ref topologyCharacters,
+                            ref isComplete,
+                            ref limitExceeded))
+                        {
+                            break;
+                        }
+
+                        AddPlcTagScopeTables(
+                            unit.TagTableGroup,
+                            unitScopePath,
+                            string.Empty,
+                            0,
+                            cancellationToken,
+                            result,
+                            diagnostics,
+                            ref visitedGroupCount,
+                            ref topologyCharacters,
+                            ref isComplete,
+                            ref limitExceeded);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (NonRecoverableException)
+                    {
+                        throw;
+                    }
+                    catch (EngineeringSecurityException exception)
+                    {
+                        isComplete = false;
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                            "A protected or inaccessible software-unit tag scope was skipped: " + exception.Message,
+                            selectedSoftwareName,
+                            exception,
+                            DiagnosticSeverity.Warning));
+                    }
+                    catch (Exception exception)
+                    {
+                        isComplete = false;
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                            "A software-unit tag scope could not be read and was skipped: " + exception.Message,
+                            selectedSoftwareName,
+                            exception,
+                            DiagnosticSeverity.Warning));
+                    }
+
+                    if (limitExceeded)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (NonRecoverableException)
+            {
+                throw;
+            }
+            catch (EngineeringSecurityException exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                    "One or more protected software-unit tag scopes could not be enumerated: " + exception.Message,
+                    selectedSoftwareName,
+                    exception,
+                    DiagnosticSeverity.Warning));
+            }
+            catch (Exception exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "Software-unit tag-scope enumeration stopped early: " + exception.Message,
+                    selectedSoftwareName,
+                    exception,
+                    DiagnosticSeverity.Warning));
+            }
+
+            return result;
+        }
+
+        private static void AddPlcTagScopeTables(
+            PlcTagTableGroup group,
+            string scopePath,
+            string escapedGroupPath,
+            int depth,
+            CancellationToken cancellationToken,
+            IList<PlcTagTableCandidate> tables,
+            IList<OpennessDiagnostic> diagnostics,
+            ref int visitedGroupCount,
+            ref long topologyCharacters,
+            ref bool isComplete,
+            ref bool limitExceeded)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (group == null || limitExceeded)
+            {
+                return;
+            }
+
+            if (depth > LegacyLibraryReadbackPolicy.MaximumTagGroupDepth)
+            {
+                limitExceeded = true;
+                isComplete = false;
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "PLC-tag discovery was rejected because a tag-table group tree exceeds the safety depth of " +
+                    LegacyLibraryReadbackPolicy.MaximumTagGroupDepth.ToString(CultureInfo.InvariantCulture) + ".",
+                    scopePath + (string.IsNullOrEmpty(escapedGroupPath) ? string.Empty : "/" + escapedGroupPath)));
+                return;
+            }
+
+            visitedGroupCount++;
+            if (visitedGroupCount > LegacyLibraryReadbackPolicy.MaximumTagGroupCount)
+            {
+                limitExceeded = true;
+                isComplete = false;
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "PLC-tag discovery was rejected because tag-table groups exceed the safety limit of " +
+                    LegacyLibraryReadbackPolicy.MaximumTagGroupCount.ToString(CultureInfo.InvariantCulture) + ".",
+                    scopePath));
+                return;
+            }
+
+            var groupLocation = scopePath +
+                (string.IsNullOrEmpty(escapedGroupPath) ? string.Empty : "/" + escapedGroupPath);
+            try
+            {
+                foreach (var table in group.TagTables)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (table == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        var tablePath = LegacyLibraryReadbackPolicy.BuildTagTablePath(
+                            scopePath,
+                            escapedGroupPath,
+                            table.Name);
+                        if (!TryReserveTagTopologyPath(
+                            tablePath,
+                            diagnostics,
+                            ref topologyCharacters,
+                            ref isComplete,
+                            ref limitExceeded))
+                        {
+                            return;
+                        }
+
+                        tables.Add(new PlcTagTableCandidate(
+                            table,
+                            tablePath,
+                            table.ModifiedTimeStamp));
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (NonRecoverableException)
+                    {
+                        throw;
+                    }
+                    catch (EngineeringSecurityException exception)
+                    {
+                        isComplete = false;
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                            "A protected or inaccessible tag table was skipped: " + exception.Message,
+                            groupLocation,
+                            exception,
+                            DiagnosticSeverity.Warning));
+                    }
+                    catch (Exception exception)
+                    {
+                        isComplete = false;
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                            "A tag table could not be identified safely and was skipped: " + exception.Message,
+                            groupLocation,
+                            exception,
+                            DiagnosticSeverity.Warning));
+                    }
+
+                    if (tables.Count > LegacyLibraryReadbackPolicy.MaximumTagTableCount)
+                    {
+                        limitExceeded = true;
+                        isComplete = false;
+                        diagnostics.Add(Error(
+                            OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                            "PLC-tag discovery was rejected because tag tables exceed the safety limit of " +
+                            LegacyLibraryReadbackPolicy.MaximumTagTableCount.ToString(CultureInfo.InvariantCulture) + ".",
+                            groupLocation));
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (NonRecoverableException)
+            {
+                throw;
+            }
+            catch (EngineeringSecurityException exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                    "A protected tag-table composition could not be enumerated and was skipped: " + exception.Message,
+                    groupLocation,
+                    exception,
+                    DiagnosticSeverity.Warning));
+            }
+            catch (Exception exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "A tag-table composition could not be enumerated and was skipped: " + exception.Message,
+                    groupLocation,
+                    exception,
+                    DiagnosticSeverity.Warning));
+            }
+
+            if (limitExceeded)
+            {
+                return;
+            }
+
+            try
+            {
+                foreach (var child in group.Groups)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (child == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        var childName = LegacyLibraryReadbackPolicy.EscapeStablePathSegment(child.Name);
+                        var childPath = string.IsNullOrEmpty(escapedGroupPath)
+                            ? childName
+                            : escapedGroupPath + "/" + childName;
+                        AddPlcTagScopeTables(
+                            child,
+                            scopePath,
+                            childPath,
+                            depth + 1,
+                            cancellationToken,
+                            tables,
+                            diagnostics,
+                            ref visitedGroupCount,
+                            ref topologyCharacters,
+                            ref isComplete,
+                            ref limitExceeded);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (NonRecoverableException)
+                    {
+                        throw;
+                    }
+                    catch (EngineeringSecurityException exception)
+                    {
+                        isComplete = false;
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                            "A protected tag-table group was skipped: " + exception.Message,
+                            groupLocation,
+                            exception,
+                            DiagnosticSeverity.Warning));
+                    }
+                    catch (Exception exception)
+                    {
+                        isComplete = false;
+                        diagnostics.Add(ExceptionDiagnostic(
+                            OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                            "A tag-table group could not be read and was skipped: " + exception.Message,
+                            groupLocation,
+                            exception,
+                            DiagnosticSeverity.Warning));
+                    }
+
+                    if (limitExceeded)
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (NonRecoverableException)
+            {
+                throw;
+            }
+            catch (EngineeringSecurityException exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogItemSkipped,
+                    "Protected child tag-table groups could not be enumerated and were skipped: " + exception.Message,
+                    groupLocation,
+                    exception,
+                    DiagnosticSeverity.Warning));
+            }
+            catch (Exception exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "Child tag-table groups could not be enumerated and were skipped: " + exception.Message,
+                    groupLocation,
+                    exception,
+                    DiagnosticSeverity.Warning));
+            }
+        }
+
+        private static TiaPlcTagCatalogItem CreatePlcTagCatalogItem(
+            string tablePath,
+            PlcTag tag,
+            Language editingLanguage,
+            Language referenceLanguage,
+            IList<OpennessDiagnostic> diagnostics,
+            out long characterCount,
+            out bool isComplete)
+        {
+            if (tag == null)
+            {
+                throw new InvalidOperationException("TIA returned a null PLC-tag object.");
+            }
+
+            var name = tag.Name;
+            var dataType = tag.DataTypeName;
+            var logicalAddress = tag.LogicalAddress ?? string.Empty;
+            var comment = ReadPlcTagCommentOrEmpty(
+                tag,
+                editingLanguage,
+                referenceLanguage,
+                tablePath,
+                name,
+                diagnostics,
+                out isComplete);
+            ValidateTagCatalogField(tablePath, "table path");
+            ValidateTagCatalogField(name, "name");
+            ValidateTagCatalogField(dataType, "data type");
+            ValidateTagCatalogField(logicalAddress, "logical address");
+            ValidateTagCatalogField(comment, "comment");
+
+            characterCount = (long)tablePath.Length +
+                (name == null ? 0 : name.Length) +
+                (dataType == null ? 0 : dataType.Length) +
+                logicalAddress.Length + comment.Length;
+            return new TiaPlcTagCatalogItem(
+                tablePath,
+                name,
+                dataType,
+                logicalAddress,
+                comment);
+        }
+
+        private static string ReadPlcTagCommentOrEmpty(
+            PlcTag tag,
+            Language editingLanguage,
+            Language referenceLanguage,
+            string tablePath,
+            string tagName,
+            IList<OpennessDiagnostic> diagnostics,
+            out bool isComplete)
+        {
+            isComplete = true;
+            try
+            {
+                return ReadPlcTagComment(tag, editingLanguage, referenceLanguage);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (NonRecoverableException)
+            {
+                throw;
+            }
+            catch (EngineeringSecurityException exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogCommentUnavailable,
+                    "The PLC tag was returned without its protected or inaccessible comment: " + exception.Message,
+                    tablePath + "/" + (tagName ?? string.Empty),
+                    exception,
+                    DiagnosticSeverity.Warning));
+                return string.Empty;
+            }
+            catch (Exception exception)
+            {
+                isComplete = false;
+                diagnostics.Add(ExceptionDiagnostic(
+                    OpennessDiagnosticCodes.PlcTagCatalogCommentUnavailable,
+                    "The PLC tag was returned without a comment because the comment could not be read safely: " +
+                    exception.Message,
+                    tablePath + "/" + (tagName ?? string.Empty),
+                    exception,
+                    DiagnosticSeverity.Warning));
+                return string.Empty;
+            }
+        }
+
+        private static string ReadPlcTagComment(
+            PlcTag tag,
+            Language editingLanguage,
+            Language referenceLanguage)
+        {
+            var comment = tag.Comment;
+            if (comment == null || comment.Items == null)
+            {
+                return string.Empty;
+            }
+
+            var editingItem = editingLanguage == null
+                ? null
+                : comment.Items.Find(editingLanguage);
+            if (editingItem != null && !string.IsNullOrEmpty(editingItem.Text))
+            {
+                return editingItem.Text;
+            }
+
+            var referenceItem = referenceLanguage == null
+                ? null
+                : comment.Items.Find(referenceLanguage);
+            if (referenceItem != null && !string.IsNullOrEmpty(referenceItem.Text))
+            {
+                return referenceItem.Text;
+            }
+
+            return comment.Items
+                .Where(item => item != null && !string.IsNullOrEmpty(item.Text))
+                .OrderBy(item => item.Language == null || item.Language.Culture == null
+                    ? string.Empty
+                    : item.Language.Culture.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(item => item.Text)
+                .FirstOrDefault() ?? string.Empty;
+        }
+
+        private static void ValidateTagCatalogField(string value, string fieldName)
+        {
+            if (value != null && value.Length > LegacyLibraryReadbackPolicy.MaximumTagFieldCharacters)
+            {
+                throw new InvalidOperationException(
+                    "PLC-tag " + fieldName + " exceeds the safety limit of " +
+                    LegacyLibraryReadbackPolicy.MaximumTagFieldCharacters.ToString(CultureInfo.InvariantCulture) +
+                    " characters.");
+            }
+        }
+
+        private static string BuildPlcTagTopologySignature(
+            IEnumerable<string> scopePaths,
+            IEnumerable<PlcTagTableCandidate> tables)
+        {
+            return LegacyLibraryReadbackPolicy.BuildTagTopologySignature(
+                scopePaths,
+                (tables ?? Enumerable.Empty<PlcTagTableCandidate>()).Select(table =>
+                    new KeyValuePair<string, long>(
+                        table.TablePath,
+                        table.ModifiedTimeStamp.Ticks)));
+        }
+
+        private static bool TryAddTagTopologyPath(
+            string value,
+            ICollection<string> paths,
+            IList<OpennessDiagnostic> diagnostics,
+            ref long topologyCharacters,
+            ref bool isComplete,
+            ref bool limitExceeded)
+        {
+            if (!TryReserveTagTopologyPath(
+                value,
+                diagnostics,
+                ref topologyCharacters,
+                ref isComplete,
+                ref limitExceeded))
+            {
+                return false;
+            }
+
+            paths.Add(value);
+            return true;
+        }
+
+        private static bool TryReserveTagTopologyPath(
+            string value,
+            IList<OpennessDiagnostic> diagnostics,
+            ref long topologyCharacters,
+            ref bool isComplete,
+            ref bool limitExceeded)
+        {
+            var path = value ?? string.Empty;
+            var reservedCharacters = (long)path.Length + 64L;
+            if (path.Length > LegacyLibraryReadbackPolicy.MaximumTagFieldCharacters ||
+                topologyCharacters + reservedCharacters >
+                LegacyLibraryReadbackPolicy.MaximumTagTopologyCharacters)
+            {
+                isComplete = false;
+                limitExceeded = true;
+                diagnostics.Add(Error(
+                    OpennessDiagnosticCodes.PlcTagCatalogReadFailed,
+                    "PLC-tag discovery was rejected because its table/unit topology exceeds the configured text safety limit.",
+                    string.Empty));
+                return false;
+            }
+
+            topologyCharacters += reservedCharacters;
+            return true;
+        }
+
+        private static void RemoveTagItemsFrom(
+            IList<TiaPlcTagCatalogItem> tags,
+            int startIndex)
+        {
+            while (tags.Count > startIndex)
+            {
+                tags.RemoveAt(tags.Count - 1);
+            }
+        }
+
+        private TiaPlcTagCatalog AvailablePlcTagCatalog(
+            bool isComplete,
+            IEnumerable<TiaPlcTagCatalogItem> tags,
+            IEnumerable<OpennessDiagnostic> diagnostics)
+        {
+            return new TiaPlcTagCatalog(
+                true,
+                isComplete,
+                selectedDeviceName,
+                selectedSoftwareName,
+                tags,
+                SealDiagnostics(diagnostics));
+        }
+
+        private TiaPlcTagCatalog UnavailablePlcTagCatalog(
+            IEnumerable<OpennessDiagnostic> diagnostics,
+            IEnumerable<TiaPlcTagCatalogItem> tags = null)
+        {
+            return new TiaPlcTagCatalog(
+                false,
+                false,
+                selectedDeviceName,
+                selectedSoftwareName,
+                tags,
+                SealDiagnostics(diagnostics));
         }
 
         private TiaLibrarySnapshot BuildLibrarySnapshot(
@@ -1446,58 +2715,171 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 deviceItemTypeName);
         }
 
-        private static Dictionary<DeviceItem, string> BuildDeviceItemPathMap(Project selectedProject)
+        private static Dictionary<DeviceItem, string> BuildDeviceItemPathMap(
+            Project selectedProject,
+            CancellationToken cancellationToken,
+            IList<OpennessDiagnostic> diagnostics,
+            out bool isComplete)
         {
             var result = new Dictionary<DeviceItem, string>();
+            var state = new HardwareTraversalState(cancellationToken, diagnostics);
             foreach (var device in selectedProject.Devices)
             {
-                AddDeviceItemPaths(device, device.Name, result);
+                state.ThrowIfCancellationRequested();
+                if (device == null)
+                {
+                    continue;
+                }
+
+                if (!state.TryVisitDevice(device.Name))
+                {
+                    break;
+                }
+
+                string devicePath;
+                if (!state.TryAppendPath(string.Empty, device.Name, out devicePath))
+                {
+                    break;
+                }
+
+                AddDeviceItemPaths(device, devicePath, 0, result, state);
+                if (!state.IsComplete)
+                {
+                    break;
+                }
             }
 
-            foreach (var group in selectedProject.DeviceGroups)
+            if (state.IsComplete)
             {
-                AddDeviceGroupItemPaths(group, group.Name, result);
+                foreach (var group in selectedProject.DeviceGroups)
+                {
+                    state.ThrowIfCancellationRequested();
+                    AddDeviceGroupItemPaths(group, string.Empty, 0, result, state);
+                    if (!state.IsComplete)
+                    {
+                        break;
+                    }
+                }
             }
 
+            isComplete = state.IsComplete;
             return result;
         }
 
         private static void AddDeviceGroupItemPaths(
             DeviceUserGroup group,
             string parentPath,
-            IDictionary<DeviceItem, string> paths)
+            int depth,
+            IDictionary<DeviceItem, string> paths,
+            HardwareTraversalState state)
         {
+            state.ThrowIfCancellationRequested();
+            if (group == null || !state.TryVisitGroup(depth))
+            {
+                return;
+            }
+
+            string groupPath;
+            if (!state.TryAppendPath(parentPath, group.Name, out groupPath))
+            {
+                return;
+            }
+
             foreach (var device in group.Devices)
             {
-                AddDeviceItemPaths(device, parentPath + "/" + device.Name, paths);
+                state.ThrowIfCancellationRequested();
+                if (device == null)
+                {
+                    continue;
+                }
+
+                if (!state.TryVisitDevice(device.Name))
+                {
+                    return;
+                }
+
+                string devicePath;
+                if (!state.TryAppendPath(groupPath, device.Name, out devicePath))
+                {
+                    return;
+                }
+
+                AddDeviceItemPaths(device, devicePath, depth + 1, paths, state);
+                if (!state.IsComplete)
+                {
+                    return;
+                }
             }
 
             foreach (var child in group.Groups)
             {
-                AddDeviceGroupItemPaths(child, parentPath + "/" + child.Name, paths);
+                state.ThrowIfCancellationRequested();
+                AddDeviceGroupItemPaths(child, groupPath, depth + 1, paths, state);
+                if (!state.IsComplete)
+                {
+                    return;
+                }
             }
         }
 
         private static void AddDeviceItemPaths(
             Device device,
             string devicePath,
-            IDictionary<DeviceItem, string> paths)
+            int depth,
+            IDictionary<DeviceItem, string> paths,
+            HardwareTraversalState state)
         {
+            state.ThrowIfCancellationRequested();
+            if (device == null)
+            {
+                return;
+            }
+
             foreach (var item in device.DeviceItems)
             {
-                AddDeviceItemPaths(item, devicePath + "/" + item.Name, paths);
+                state.ThrowIfCancellationRequested();
+                string itemPath;
+                if (!state.TryAppendPath(devicePath, item == null ? string.Empty : item.Name, out itemPath))
+                {
+                    return;
+                }
+
+                AddDeviceItemPaths(item, itemPath, depth, paths, state);
+                if (!state.IsComplete)
+                {
+                    return;
+                }
             }
         }
 
         private static void AddDeviceItemPaths(
             DeviceItem item,
             string itemPath,
-            IDictionary<DeviceItem, string> paths)
+            int depth,
+            IDictionary<DeviceItem, string> paths,
+            HardwareTraversalState state)
         {
+            state.ThrowIfCancellationRequested();
+            if (item == null || !state.TryVisitDeviceItem(depth, itemPath))
+            {
+                return;
+            }
+
             paths[item] = itemPath;
             foreach (var child in item.DeviceItems)
             {
-                AddDeviceItemPaths(child, itemPath + "/" + child.Name, paths);
+                state.ThrowIfCancellationRequested();
+                string childPath;
+                if (!state.TryAppendPath(itemPath, child == null ? string.Empty : child.Name, out childPath))
+                {
+                    return;
+                }
+
+                AddDeviceItemPaths(child, childPath, depth + 1, paths, state);
+                if (!state.IsComplete)
+                {
+                    return;
+                }
             }
         }
 
@@ -1559,13 +2941,33 @@ namespace TiaSclStudio.Openness.Legacy.V17
         private TiaHardwareIoCatalog UnavailableHardwareIoCatalog(
             IEnumerable<OpennessDiagnostic> diagnostics)
         {
-            return new TiaHardwareIoCatalog(
-                false,
+            return UnavailableHardwareIoCatalog(
                 TiaCpuFamily.Unknown,
                 string.Empty,
                 string.Empty,
-                null,
                 diagnostics);
+        }
+
+        private TiaHardwareIoCatalog UnavailableHardwareIoCatalog(
+            TiaCpuFamily cpuFamily,
+            string cpuModel,
+            string cpuTypeIdentifier,
+            IEnumerable<OpennessDiagnostic> diagnostics)
+        {
+            return new TiaHardwareIoCatalog(
+                false,
+                cpuFamily,
+                cpuModel,
+                cpuTypeIdentifier,
+                null,
+                SealDiagnostics(diagnostics));
+        }
+
+        private static IEnumerable<OpennessDiagnostic> SealDiagnostics(
+            IEnumerable<OpennessDiagnostic> diagnostics)
+        {
+            var bounded = diagnostics as BoundedDiagnosticCollection;
+            return bounded == null ? diagnostics : bounded.Seal();
         }
 
         private PreflightPlan BuildPreflight(TiaExportRequest request)
@@ -3511,7 +4913,7 @@ namespace TiaSclStudio.Openness.Legacy.V17
             }
 
             var result = string.Join(" | ", parts);
-            const int maximumLength = 4096;
+            var maximumLength = LegacyLibraryReadbackPolicy.MaximumDiagnosticTextCharacters;
             return result.Length <= maximumLength
                 ? result
                 : result.Substring(0, maximumLength - 3) + "...";
@@ -3595,6 +4997,149 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         ? Name
                         : GroupPath + "/" + Name;
                 }
+            }
+        }
+
+        private sealed class PlcTagTableCandidate
+        {
+            public PlcTagTableCandidate(
+                PlcTagTable table,
+                string tablePath,
+                DateTime modifiedTimeStamp)
+            {
+                Table = table ?? throw new ArgumentNullException(nameof(table));
+                TablePath = tablePath ?? string.Empty;
+                ModifiedTimeStamp = modifiedTimeStamp;
+            }
+
+            public PlcTagTable Table { get; private set; }
+
+            public string TablePath { get; private set; }
+
+            public DateTime ModifiedTimeStamp { get; private set; }
+        }
+
+        private sealed class HardwareTraversalState
+        {
+            private readonly CancellationToken cancellationToken;
+            private readonly IList<OpennessDiagnostic> diagnostics;
+            private int groupCount;
+            private int deviceCount;
+            private int deviceItemCount;
+
+            public HardwareTraversalState(
+                CancellationToken cancellationToken,
+                IList<OpennessDiagnostic> diagnostics)
+            {
+                this.cancellationToken = cancellationToken;
+                this.diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+                IsComplete = true;
+            }
+
+            public bool IsComplete { get; private set; }
+
+            public void ThrowIfCancellationRequested()
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            public bool TryVisitGroup(int depth)
+            {
+                if (!IsComplete)
+                {
+                    return false;
+                }
+
+                if (depth > LegacyLibraryReadbackPolicy.MaximumHardwareTreeDepth)
+                {
+                    return Fail(
+                        "The project device-group tree exceeds the hardware discovery safety depth of " +
+                        LegacyLibraryReadbackPolicy.MaximumHardwareTreeDepth.ToString(CultureInfo.InvariantCulture) + ".",
+                        string.Empty);
+                }
+
+                groupCount++;
+                return groupCount <= LegacyLibraryReadbackPolicy.MaximumHardwareGroupCount || Fail(
+                    "Project device groups exceed the hardware discovery safety limit of " +
+                    LegacyLibraryReadbackPolicy.MaximumHardwareGroupCount.ToString(CultureInfo.InvariantCulture) + ".",
+                    string.Empty);
+            }
+
+            public bool TryVisitDevice(string location)
+            {
+                if (!IsComplete)
+                {
+                    return false;
+                }
+
+                deviceCount++;
+                return deviceCount <= LegacyLibraryReadbackPolicy.MaximumHardwareDeviceCount || Fail(
+                    "Project devices exceed the hardware discovery safety limit of " +
+                    LegacyLibraryReadbackPolicy.MaximumHardwareDeviceCount.ToString(CultureInfo.InvariantCulture) + ".",
+                    location);
+            }
+
+            public bool TryVisitDeviceItem(int depth, string location)
+            {
+                if (!IsComplete)
+                {
+                    return false;
+                }
+
+                if (depth > LegacyLibraryReadbackPolicy.MaximumHardwareTreeDepth)
+                {
+                    return Fail(
+                        "A device-item tree exceeds the hardware discovery safety depth of " +
+                        LegacyLibraryReadbackPolicy.MaximumHardwareTreeDepth.ToString(CultureInfo.InvariantCulture) + ".",
+                        location);
+                }
+
+                deviceItemCount++;
+                return deviceItemCount <= LegacyLibraryReadbackPolicy.MaximumHardwareDeviceItemCount || Fail(
+                    "Project device items exceed the hardware discovery safety limit of " +
+                    LegacyLibraryReadbackPolicy.MaximumHardwareDeviceItemCount.ToString(CultureInfo.InvariantCulture) + ".",
+                    location);
+            }
+
+            public bool TryAppendPath(string parent, string name, out string path)
+            {
+                path = string.Empty;
+                if (!IsComplete)
+                {
+                    return false;
+                }
+
+                var normalizedParent = parent ?? string.Empty;
+                var normalizedName = name ?? string.Empty;
+                var separatorLength = normalizedParent.Length == 0 ? 0 : 1;
+                var pathLength = (long)normalizedParent.Length + separatorLength + normalizedName.Length;
+                if (pathLength > LegacyLibraryReadbackPolicy.MaximumHardwarePathCharacters)
+                {
+                    return Fail(
+                        "A hardware path exceeds the safety limit of " +
+                        LegacyLibraryReadbackPolicy.MaximumHardwarePathCharacters.ToString(CultureInfo.InvariantCulture) +
+                        " characters.",
+                        normalizedParent);
+                }
+
+                path = separatorLength == 0
+                    ? normalizedName
+                    : normalizedParent + "/" + normalizedName;
+                return true;
+            }
+
+            private bool Fail(string message, string location)
+            {
+                if (IsComplete)
+                {
+                    IsComplete = false;
+                    diagnostics.Add(Error(
+                        OpennessDiagnosticCodes.HardwareIoCatalogReadFailed,
+                        message,
+                        location));
+                }
+
+                return false;
             }
         }
 

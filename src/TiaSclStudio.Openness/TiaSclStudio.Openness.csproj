@@ -72,6 +72,8 @@
     <Compile Include="Gateway\TiaLibrarySnapshot.cs" />
     <Compile Include="Gateway\TiaLibrarySource.cs" />
     <Compile Include="Gateway\TiaLibrarySourceKind.cs" />
+    <Compile Include="Gateway\TiaPlcTagCatalog.cs" />
+    <Compile Include="Gateway\TiaPlcTagCatalogItem.cs" />
     <Compile Include="Gateway\TiaPlcTag.cs" />
     <Compile Include="Gateway\TiaSourceFile.cs" />
     <Compile Include="Gateway\TiaSourceKind.cs" />

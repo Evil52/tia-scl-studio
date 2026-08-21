@@ -50,7 +50,7 @@ namespace TiaSclStudio.Openness.Gateway
             return status;
         }
 
-        public TiaHardwareIoCatalog ReadHardwareIoCatalog()
+        public TiaHardwareIoCatalog ReadHardwareIoCatalog(CancellationToken cancellationToken)
         {
             return new TiaHardwareIoCatalog(
                 false,
@@ -81,6 +81,23 @@ namespace TiaSclStudio.Openness.Gateway
                         OpennessDiagnosticCodes.LibrarySnapshotUnavailable,
                         DiagnosticSeverity.Information,
                         "PLC library readback is unavailable because the gateway is offline. No TIA Portal state was accessed.")
+                });
+        }
+
+        public TiaPlcTagCatalog ReadPlcTagCatalog(CancellationToken cancellationToken)
+        {
+            return new TiaPlcTagCatalog(
+                false,
+                false,
+                string.Empty,
+                string.Empty,
+                null,
+                new[]
+                {
+                    new OpennessDiagnostic(
+                        OpennessDiagnosticCodes.PlcTagCatalogUnavailable,
+                        DiagnosticSeverity.Information,
+                        "PLC-tag discovery is unavailable because the gateway is offline. No TIA Portal state was accessed.")
                 });
         }
 
