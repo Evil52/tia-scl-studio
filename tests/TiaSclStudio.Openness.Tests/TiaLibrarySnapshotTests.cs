@@ -24,6 +24,22 @@ namespace TiaSclStudio.Openness.Tests
             Assert.Equal("Unit/Packaging/Valves", source.GroupPath);
             Assert.Equal("SCL", source.ProgrammingLanguage);
             Assert.Contains("FUNCTION_BLOCK", source.SclText);
+            Assert.False(source.IsInterfaceOnly);
+        }
+
+        [Fact]
+        public void InterfaceOnlySourceKeepsItsReadOnlyOrigin()
+        {
+            var source = new TiaLibrarySource(
+                TiaLibrarySourceKind.FunctionBlock,
+                "FB_Lad",
+                string.Empty,
+                "LAD",
+                "FUNCTION_BLOCK FB_Lad\r\nBEGIN\r\nEND_FUNCTION_BLOCK",
+                true);
+
+            Assert.True(source.IsInterfaceOnly);
+            Assert.Equal("LAD", source.ProgrammingLanguage);
         }
 
         [Theory]

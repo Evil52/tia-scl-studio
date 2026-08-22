@@ -6,9 +6,11 @@ using TiaSclStudio.Openness.Diagnostics;
 namespace TiaSclStudio.Openness.Gateway
 {
     /// <summary>
-    /// Immutable read-only snapshot of FB, FC and PLC data-type SCL sources in
-    /// the currently selected PLC. A snapshot can be available but incomplete
-    /// when individual protected or unsupported objects were skipped.
+    /// Immutable read-only snapshot of FB, FC and PLC data-type declarations in
+    /// the currently selected PLC. SCL blocks retain their generated source;
+    /// LAD/FBD blocks can be represented by a read-only interface declaration.
+    /// A snapshot can be available but incomplete when individual protected or
+    /// unsupported objects were skipped.
     /// </summary>
     public sealed class TiaLibrarySnapshot
     {

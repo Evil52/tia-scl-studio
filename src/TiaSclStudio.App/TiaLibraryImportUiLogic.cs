@@ -61,6 +61,10 @@ namespace TiaSclStudio.App
             var usableSources = sources
                 .Where(item => !string.IsNullOrWhiteSpace(item.SclText))
                 .ToList();
+            var interfaceOnlySources = usableSources
+                .Where(item => item.IsInterfaceOnly)
+                .ToList();
+            var generatedSclSources = usableSources.Count - interfaceOnlySources.Count;
             var omittedSources = sources.Count - usableSources.Count;
             var complete = snapshot.IsComplete && omittedSources == 0;
             var cancelled = snapshot.Diagnostics.Any(item =>
@@ -97,6 +101,13 @@ namespace TiaSclStudio.App
                     "Снимок неполный: часть объектов TIA не удалось прочитать. Отсутствующие объекты не будут удалены из локальной библиотеки.");
             }
 
+            if (interfaceOnlySources.Count > 0)
+            {
+                warningLines.Add(
+                    "Интерфейсных LAD/FBD-блоков без SCL-тела: " +
+                    interfaceOnlySources.Count + ". Их алгоритм не импортируется.");
+            }
+
             if (omittedSources > 0)
             {
                 warningLines.Add("Объектов без SCL: " + omittedSources + ".");
@@ -114,7 +125,8 @@ namespace TiaSclStudio.App
                 ? "Библиотека TIA недоступна для чтения."
                 : usableSources.Count == 0
                     ? "В снимке TIA нет FB, FC или UDT, которые можно импортировать."
-                    : "Снимок " + target + ": прочитано объектов " + usableSources.Count +
+                    : "Снимок " + target + ": SCL-объектов " + generatedSclSources +
+                      ", интерфейсных LAD/FBD-блоков " + interfaceOnlySources.Count +
                       (complete ? "." : "; снимок неполный.");
 
             return new TiaLibraryImportPreparation(

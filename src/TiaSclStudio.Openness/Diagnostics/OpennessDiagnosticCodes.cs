@@ -35,6 +35,7 @@ namespace TiaSclStudio.Openness.Diagnostics
         public const string LibrarySnapshotUnavailable = "TIA_LIBRARY_SNAPSHOT_UNAVAILABLE";
         public const string LibrarySnapshotReadFailed = "TIA_LIBRARY_SNAPSHOT_READ_FAILED";
         public const string LibrarySnapshotObjectSkipped = "TIA_LIBRARY_SNAPSHOT_OBJECT_SKIPPED";
+        public const string LibrarySnapshotInterfaceRead = "TIA_LIBRARY_SNAPSHOT_INTERFACE_READ";
         public const string LibrarySnapshotCancelled = "TIA_LIBRARY_SNAPSHOT_CANCELLED";
         public const string LibrarySnapshotRead = "TIA_LIBRARY_SNAPSHOT_READ";
         public const string PlcTagCatalogUnavailable = "TIA_PLC_TAG_CATALOG_UNAVAILABLE";

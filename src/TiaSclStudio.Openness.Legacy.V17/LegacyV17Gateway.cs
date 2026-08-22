@@ -13,6 +13,7 @@ using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Blocks.Interface;
 using Siemens.Engineering.SW.ExternalSources;
 using Siemens.Engineering.SW.Tags;
 using Siemens.Engineering.SW.Types;
@@ -2333,23 +2334,14 @@ namespace TiaSclStudio.Openness.Legacy.V17
                     continue;
                 }
 
-                if (candidate.Kind != TiaLibrarySourceKind.DataType &&
-                    !string.Equals(candidate.ProgrammingLanguage, "SCL", StringComparison.OrdinalIgnoreCase))
-                {
-                    isComplete = false;
-                    diagnostics.Add(new OpennessDiagnostic(
-                        OpennessDiagnosticCodes.LibrarySnapshotObjectSkipped,
-                        DiagnosticSeverity.Warning,
-                        "Only SCL FB/FC blocks can be generated as SCL source; this " +
-                        candidate.ProgrammingLanguage + " block was skipped.",
-                        candidate.Location));
-                    continue;
-                }
-
                 try
                 {
                     long sourceBytes;
-                    var sourceText = GenerateLibrarySource(candidate, diagnostics, out sourceBytes);
+                    var isInterfaceOnly = candidate.Kind != TiaLibrarySourceKind.DataType &&
+                        !string.Equals(candidate.ProgrammingLanguage, "SCL", StringComparison.OrdinalIgnoreCase);
+                    var sourceText = isInterfaceOnly
+                        ? GenerateLibraryInterfaceSource(candidate, out sourceBytes)
+                        : GenerateLibrarySource(candidate, diagnostics, out sourceBytes);
                     if (totalSourceBytes + sourceBytes > LegacyLibraryReadbackPolicy.MaximumTotalSourceBytes)
                     {
                         isComplete = false;
@@ -2369,7 +2361,16 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         candidate.Name,
                         candidate.GroupPath,
                         candidate.ProgrammingLanguage,
-                        sourceText));
+                        sourceText,
+                        isInterfaceOnly));
+                    if (isInterfaceOnly)
+                    {
+                        diagnostics.Add(new OpennessDiagnostic(
+                            OpennessDiagnosticCodes.LibrarySnapshotInterfaceRead,
+                            DiagnosticSeverity.Information,
+                            candidate.ProgrammingLanguage + " block was read as an interface only; its executable body is unavailable.",
+                            candidate.Location));
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -2398,8 +2399,10 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 OpennessDiagnosticCodes.LibrarySnapshotRead,
                 DiagnosticSeverity.Information,
                 "PLC library readback completed with " +
-                sources.Count.ToString(CultureInfo.InvariantCulture) +
-                " generated FB/FC/UDT source(s)" + (isComplete ? "." : "; the snapshot is partial."),
+                sources.Count(item => !item.IsInterfaceOnly).ToString(CultureInfo.InvariantCulture) +
+                " generated SCL FB/FC/UDT source(s) and " +
+                sources.Count(item => item.IsInterfaceOnly).ToString(CultureInfo.InvariantCulture) +
+                " LAD/FBD interface-only block(s)" + (isComplete ? "." : "; the snapshot is partial."),
                 selectedDeviceName + "/" + selectedSoftwareName));
             return AvailableLibrarySnapshot(isComplete, sources, diagnostics);
         }
@@ -2543,6 +2546,231 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 diagnostics);
             sourceBytes = new UTF8Encoding(false, true).GetByteCount(text);
             return text;
+        }
+
+        private static string GenerateLibraryInterfaceSource(
+            LibraryReadCandidate candidate,
+            out long sourceBytes)
+        {
+            var block = candidate.SourceObject as PlcBlock;
+            if (block == null)
+            {
+                throw new InvalidOperationException(
+                    "Only PLC FB/FC blocks can be reconstructed from an interface.");
+            }
+
+            var blockInterface = ((IEngineeringObject)block).GetComposition("Interface") as PlcBlockInterface;
+            if (blockInterface == null)
+            {
+                throw new InvalidOperationException(
+                    "TIA Portal did not expose the block interface for this " +
+                    candidate.ProgrammingLanguage + " block.");
+            }
+
+            var membersBySection = new Dictionary<string, List<LibraryInterfaceMember>>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var member in blockInterface.Members)
+            {
+                var dataType = ReadEngineeringStringAttribute(
+                    member,
+                    "Datatype",
+                    "DataType",
+                    "DataTypeName");
+                if (string.IsNullOrWhiteSpace(dataType))
+                {
+                    throw new InvalidOperationException(
+                        "TIA Portal did not expose Datatype for interface member '" + member.Name + "'.");
+                }
+
+                var section = ResolveInterfaceSection(member);
+                if (string.IsNullOrEmpty(section))
+                {
+                    throw new InvalidOperationException(
+                        "TIA Portal did not expose the section for interface member '" + member.Name + "'.");
+                }
+
+                List<LibraryInterfaceMember> members;
+                if (!membersBySection.TryGetValue(section, out members))
+                {
+                    members = new List<LibraryInterfaceMember>();
+                    membersBySection.Add(section, members);
+                }
+
+                members.Add(new LibraryInterfaceMember(member.Name, dataType));
+            }
+
+            var builder = new StringBuilder();
+            if (candidate.Kind == TiaLibrarySourceKind.FunctionBlock)
+            {
+                builder.Append("FUNCTION_BLOCK ").Append(QuoteSclIdentifier(candidate.Name)).AppendLine();
+            }
+            else
+            {
+                // Openness does not expose a stable FC return type through the
+                // generic block interface. The normal outputs remain available;
+                // Void keeps this declaration importable without inventing one.
+                builder.Append("FUNCTION ").Append(QuoteSclIdentifier(candidate.Name)).Append(" : Void").AppendLine();
+            }
+
+            AppendInterfaceSection(builder, "VAR_INPUT", membersBySection, "Input");
+            AppendInterfaceSection(builder, "VAR_OUTPUT", membersBySection, "Output", "Return");
+            AppendInterfaceSection(builder, "VAR_IN_OUT", membersBySection, "InOut", "In Out", "Inout");
+            if (candidate.Kind == TiaLibrarySourceKind.FunctionBlock)
+            {
+                AppendInterfaceSection(builder, "VAR", membersBySection, "Static", "Stat");
+            }
+
+            AppendInterfaceSection(builder, "VAR_TEMP", membersBySection, "Temp", "Temporary");
+            AppendInterfaceSection(builder, "VAR CONSTANT", membersBySection, "Constant", "Const");
+            builder.AppendLine("BEGIN");
+            builder.Append(candidate.Kind == TiaLibrarySourceKind.FunctionBlock
+                ? "END_FUNCTION_BLOCK"
+                : "END_FUNCTION");
+
+            var text = builder.ToString();
+            ValidateGeneratedLibrarySource(candidate, text);
+            sourceBytes = new UTF8Encoding(false, true).GetByteCount(text);
+            return text;
+        }
+
+        private static void AppendInterfaceSection(
+            StringBuilder builder,
+            string sclSection,
+            IDictionary<string, List<LibraryInterfaceMember>> membersBySection,
+            params string[] sectionNames)
+        {
+            var members = new List<LibraryInterfaceMember>();
+            foreach (var sectionName in sectionNames)
+            {
+                List<LibraryInterfaceMember> sectionMembers;
+                if (membersBySection.TryGetValue(sectionName, out sectionMembers))
+                {
+                    members.AddRange(sectionMembers);
+                }
+            }
+
+            if (members.Count == 0)
+            {
+                return;
+            }
+
+            builder.AppendLine(sclSection);
+            foreach (var member in members.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                builder.Append("    ")
+                    .Append(QuoteSclIdentifier(member.Name))
+                    .Append(" : ")
+                    .Append(member.DataType.Trim())
+                    .AppendLine(";");
+            }
+
+            builder.AppendLine("END_VAR");
+        }
+
+        private static string ResolveInterfaceSection(Member member)
+        {
+            var direct = NormalizeInterfaceSection(ReadEngineeringStringAttribute(
+                member,
+                "Section",
+                "SectionName",
+                "DeclarationSection",
+                "Scope"));
+            if (!string.IsNullOrEmpty(direct))
+            {
+                return direct;
+            }
+
+            IEngineeringObject current = member.Parent;
+            for (var depth = 0; current != null && depth < 8; depth++)
+            {
+                var typeName = current.GetType().Name;
+                var parentSection = typeName.IndexOf("Section", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? ReadEngineeringStringAttribute(current, "Name", "Section", "SectionName")
+                    : ReadEngineeringStringAttribute(current, "Section", "SectionName");
+                var normalized = NormalizeInterfaceSection(parentSection);
+                if (!string.IsNullOrEmpty(normalized))
+                {
+                    return normalized;
+                }
+
+                var parent = current.Parent;
+                if (ReferenceEquals(parent, current))
+                {
+                    break;
+                }
+
+                current = parent;
+            }
+
+            return string.Empty;
+        }
+
+        private static string NormalizeInterfaceSection(string value)
+        {
+            var normalized = (value ?? string.Empty)
+                .Replace("_", string.Empty)
+                .Replace(" ", string.Empty)
+                .Trim();
+            if (string.Equals(normalized, "Input", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "In", StringComparison.OrdinalIgnoreCase)) return "Input";
+            if (string.Equals(normalized, "Output", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Out", StringComparison.OrdinalIgnoreCase)) return "Output";
+            if (string.Equals(normalized, "InOut", StringComparison.OrdinalIgnoreCase)) return "InOut";
+            if (string.Equals(normalized, "Static", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Stat", StringComparison.OrdinalIgnoreCase)) return "Static";
+            if (string.Equals(normalized, "Temp", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Temporary", StringComparison.OrdinalIgnoreCase)) return "Temp";
+            if (string.Equals(normalized, "Constant", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalized, "Const", StringComparison.OrdinalIgnoreCase)) return "Constant";
+            if (string.Equals(normalized, "Return", StringComparison.OrdinalIgnoreCase)) return "Return";
+            return string.Empty;
+        }
+
+        private static string ReadEngineeringStringAttribute(
+            IEngineeringObject engineeringObject,
+            params string[] names)
+        {
+            if (engineeringObject == null || names == null)
+            {
+                return string.Empty;
+            }
+
+            IList<EngineeringAttributeInfo> infos;
+            try
+            {
+                infos = engineeringObject.GetAttributeInfos();
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+
+            foreach (var preferredName in names)
+            {
+                var info = infos.FirstOrDefault(item => item != null &&
+                    string.Equals(item.Name, preferredName, StringComparison.OrdinalIgnoreCase));
+                if (info == null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var value = engineeringObject.GetAttribute(info.Name);
+                    return value == null ? string.Empty : Convert.ToString(value, CultureInfo.InvariantCulture).Trim();
+                }
+                catch (Exception)
+                {
+                    // Another supported attribute name may still be available.
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string QuoteSclIdentifier(string value)
+        {
+            return "\"" + (value ?? string.Empty).Replace("\"", "\"\"") + "\"";
         }
 
         private static string GenerateEngineeringSource(
@@ -7040,6 +7268,19 @@ namespace TiaSclStudio.Openness.Legacy.V17
                         : GroupPath + "/" + Name;
                 }
             }
+        }
+
+        private sealed class LibraryInterfaceMember
+        {
+            public LibraryInterfaceMember(string name, string dataType)
+            {
+                Name = name ?? string.Empty;
+                DataType = dataType ?? string.Empty;
+            }
+
+            public string Name { get; private set; }
+
+            public string DataType { get; private set; }
         }
 
         private sealed class PlcTagTableCandidate

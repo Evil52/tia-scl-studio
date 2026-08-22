@@ -13,6 +13,17 @@ namespace TiaSclStudio.Openness.Gateway
             string groupPath,
             string programmingLanguage,
             string sclText)
+            : this(kind, name, groupPath, programmingLanguage, sclText, false)
+        {
+        }
+
+        public TiaLibrarySource(
+            TiaLibrarySourceKind kind,
+            string name,
+            string groupPath,
+            string programmingLanguage,
+            string sclText,
+            bool isInterfaceOnly)
         {
             if (!Enum.IsDefined(typeof(TiaLibrarySourceKind), kind))
             {
@@ -34,6 +45,7 @@ namespace TiaSclStudio.Openness.Gateway
             GroupPath = groupPath ?? string.Empty;
             ProgrammingLanguage = programmingLanguage ?? string.Empty;
             SclText = sclText;
+            IsInterfaceOnly = isInterfaceOnly;
         }
 
         public TiaLibrarySourceKind Kind { get; }
@@ -49,5 +61,12 @@ namespace TiaSclStudio.Openness.Gateway
         public string ProgrammingLanguage { get; }
 
         public string SclText { get; }
+
+        /// <summary>
+        /// True when the declaration was reconstructed from a non-SCL block
+        /// interface (for example LAD or FBD). Its executable body is not
+        /// available and must never be treated as SCL source code.
+        /// </summary>
+        public bool IsInterfaceOnly { get; }
     }
 }

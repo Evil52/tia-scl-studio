@@ -96,6 +96,36 @@ namespace TiaSclStudio.App
         }
 
         [Fact]
+        public void InterfaceOnlyLadSourceCanBePreviewedAndIsExplained()
+        {
+            var snapshot = new TiaLibrarySnapshot(
+                true,
+                true,
+                "PLC_1",
+                "Program",
+                new[]
+                {
+                    new TiaLibrarySource(
+                        TiaLibrarySourceKind.FunctionBlock,
+                        "FB_Lad",
+                        string.Empty,
+                        "LAD",
+                        "FUNCTION_BLOCK FB_Lad\r\nVAR_INPUT\r\n In1 : Bool;\r\nEND_VAR\r\nBEGIN\r\nEND_FUNCTION_BLOCK",
+                        true)
+                },
+                null);
+
+            var preparation = TiaLibraryImportUiLogic.Prepare(snapshot);
+            var parsed = new SclLibrarySourceParser().Parse(preparation.CombinedScl);
+
+            Assert.True(preparation.CanPreview);
+            Assert.Contains("интерфейсных LAD/FBD-блоков 1", preparation.SummaryText);
+            Assert.Contains("без SCL-тела", preparation.WarningText);
+            Assert.Single(parsed.Items);
+            Assert.False(parsed.HasErrors);
+        }
+
+        [Fact]
         public void UnavailableOrEmptySnapshotsNeverOpenAnImportPreview()
         {
             var unavailable = new TiaLibrarySnapshot(
