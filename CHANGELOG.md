@@ -50,6 +50,9 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- TIA library readback now imports LAD/FBD FB and FC blocks as interface-only
+  declarations. Their pin names, types and sections are available in the local
+  library, while executable LAD/FBD logic is never copied or converted to SCL.
 - UDT library editor with create/edit/delete/reorder operations, nested UDT references,
   dependency ordering, safe rename propagation and referenced-type deletion protection.
 - A shared strict PLC type catalogue for FB/FC interfaces, tags and UDT members. Block and
