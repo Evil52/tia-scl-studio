@@ -13,6 +13,7 @@ namespace TiaSclStudio.Core.Model
             Blocks = new List<BlockDefinition>();
             DataTypes = new List<UdtDefinition>();
             Tags = new List<TagDefinition>();
+            DataBlockVariables = new List<DataBlockVariableDefinition>();
             CallBlocks = new List<CallBlockDefinition>();
         }
 
@@ -27,6 +28,8 @@ namespace TiaSclStudio.Core.Model
         public List<UdtDefinition> DataTypes { get; set; }
 
         public List<TagDefinition> Tags { get; set; }
+
+        public List<DataBlockVariableDefinition> DataBlockVariables { get; set; }
 
         public List<CallBlockDefinition> CallBlocks { get; set; }
     }

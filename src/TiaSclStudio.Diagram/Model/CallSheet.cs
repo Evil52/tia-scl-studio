@@ -30,6 +30,7 @@ namespace TiaSclStudio.Diagram.Model
 
         [XmlArrayItem("BlockCall", typeof(BlockCallNode))]
         [XmlArrayItem("Tag", typeof(TagNode))]
+        [XmlArrayItem("DataBlockVariable", typeof(DataBlockVariableNode))]
         [XmlArrayItem("Constant", typeof(ConstantNode))]
         [XmlArrayItem("Logic", typeof(LogicNode))]
         [XmlArrayItem("Note", typeof(NoteNode))]

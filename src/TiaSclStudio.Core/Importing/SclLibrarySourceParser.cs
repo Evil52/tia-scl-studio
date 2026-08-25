@@ -452,11 +452,21 @@ namespace TiaSclStudio.Core.Importing
                 return;
             }
 
+            if (declaration.IsOverlay)
+            {
+                return;
+            }
+
             foreach (var name in declaration.Names)
             {
                 string error;
                 if (!SclName.TryValidate(name, out error))
                 {
+                    if (section == InterfaceSection.Constant && name.IndexOf('.') >= 0)
+                    {
+                        continue;
+                    }
+
                     result.AddDiagnostic(
                         SclImportDiagnosticSeverity.Error,
                         "SCL_IMPORT_MEMBER_NAME_INVALID",
@@ -492,6 +502,11 @@ namespace TiaSclStudio.Core.Importing
                     "Cannot parse a declaration in UDT '" + dataType.Name + "': " + statement.Code.Trim(),
                     statement.Line,
                     1);
+                return;
+            }
+
+            if (declaration.IsOverlay)
+            {
                 return;
             }
 
@@ -542,10 +557,12 @@ namespace TiaSclStudio.Core.Importing
                 return false;
             }
 
-            var namePart = code.Substring(0, colon).Trim();
-            if (ContainsWord(namePart, "AT"))
+            var namePart = RemoveTopLevelAttributeBlocks(code.Substring(0, colon));
+            var atIndex = FindTopLevelWord(namePart, "AT");
+            var isOverlay = atIndex >= 0;
+            if (isOverlay)
             {
-                return false;
+                namePart = namePart.Substring(0, atIndex).TrimEnd();
             }
 
             var assignment = FindTopLevel(code, ":=", colon + 1);
@@ -569,7 +586,7 @@ namespace TiaSclStudio.Core.Importing
                 return false;
             }
 
-            declaration = new ParsedDeclaration(names, dataTypePart, initialValue);
+            declaration = new ParsedDeclaration(names, dataTypePart, initialValue, isOverlay);
             return true;
         }
 
@@ -783,6 +800,9 @@ namespace TiaSclStudio.Core.Importing
         private static bool TryParseSectionHeader(string value, out InterfaceSection section)
         {
             var normalized = CollapseWhitespace(value).Replace('_', ' ').Trim();
+            normalized = RemoveTrailingSectionModifier(normalized, "NON RETAIN");
+            normalized = RemoveTrailingSectionModifier(normalized, "RETAIN");
+            normalized = RemoveTrailingSectionModifier(normalized, "DB SPECIFIC");
             if (string.Equals(normalized, "VAR INPUT", StringComparison.OrdinalIgnoreCase))
             {
                 section = InterfaceSection.Input;
@@ -824,6 +844,19 @@ namespace TiaSclStudio.Core.Importing
 
             section = default(InterfaceSection);
             return false;
+        }
+
+        private static string RemoveTrailingSectionModifier(string value, string modifier)
+        {
+            if (string.IsNullOrWhiteSpace(value) || string.IsNullOrWhiteSpace(modifier))
+            {
+                return value ?? string.Empty;
+            }
+
+            var suffix = " " + modifier;
+            return value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+                ? value.Substring(0, value.Length - suffix.Length).TrimEnd()
+                : value;
         }
 
         private static bool TryParseVersion(string value, out string version)
@@ -911,6 +944,7 @@ namespace TiaSclStudio.Core.Importing
             var inDouble = false;
             var squareDepth = 0;
             var roundDepth = 0;
+            var curlyDepth = 0;
             for (var index = Math.Max(0, start); index <= value.Length - token.Length; index++)
             {
                 var current = value[index];
@@ -947,7 +981,9 @@ namespace TiaSclStudio.Core.Importing
                 if (current == ']') squareDepth = Math.Max(0, squareDepth - 1);
                 if (current == '(') roundDepth++;
                 if (current == ')') roundDepth = Math.Max(0, roundDepth - 1);
-                if (squareDepth == 0 && roundDepth == 0 &&
+                if (current == '{') curlyDepth++;
+                if (current == '}') curlyDepth = Math.Max(0, curlyDepth - 1);
+                if (squareDepth == 0 && roundDepth == 0 && curlyDepth == 0 &&
                     string.Compare(value, index, token, 0, token.Length, StringComparison.Ordinal) == 0)
                 {
                     return index;
@@ -961,12 +997,28 @@ namespace TiaSclStudio.Core.Importing
         {
             var result = new List<string>();
             var start = 0;
+            var inSingle = false;
             var inDouble = false;
+            var squareDepth = 0;
+            var roundDepth = 0;
+            var curlyDepth = 0;
             for (var index = 0; index < value.Length; index++)
             {
-                if (value[index] == '"')
+                var current = value[index];
+                var next = index + 1 < value.Length ? value[index + 1] : '\0';
+                if (current == '\'' && !inDouble)
                 {
-                    if (inDouble && index + 1 < value.Length && value[index + 1] == '"')
+                    if (inSingle && next == '\'')
+                    {
+                        index++;
+                        continue;
+                    }
+
+                    inSingle = !inSingle;
+                }
+                else if (current == '"' && !inSingle)
+                {
+                    if (inDouble && next == '"')
                     {
                         index++;
                         continue;
@@ -974,7 +1026,18 @@ namespace TiaSclStudio.Core.Importing
 
                     inDouble = !inDouble;
                 }
-                else if (!inDouble && value[index] == separator)
+                else if (!inSingle && !inDouble)
+                {
+                    if (current == '[') squareDepth++;
+                    if (current == ']') squareDepth = Math.Max(0, squareDepth - 1);
+                    if (current == '(') roundDepth++;
+                    if (current == ')') roundDepth = Math.Max(0, roundDepth - 1);
+                    if (current == '{') curlyDepth++;
+                    if (current == '}') curlyDepth = Math.Max(0, curlyDepth - 1);
+                }
+
+                if (!inSingle && !inDouble && squareDepth == 0 && roundDepth == 0 &&
+                    curlyDepth == 0 && current == separator)
                 {
                     result.Add(value.Substring(start, index - start).Trim());
                     start = index + 1;
@@ -991,6 +1054,7 @@ namespace TiaSclStudio.Core.Importing
             var inDouble = false;
             var squareDepth = 0;
             var roundDepth = 0;
+            var curlyDepth = 0;
             for (var index = 0; index < (value ?? string.Empty).Length; index++)
             {
                 var current = value[index];
@@ -1024,10 +1088,74 @@ namespace TiaSclStudio.Core.Importing
                 if (current == ']') squareDepth--;
                 if (current == '(') roundDepth++;
                 if (current == ')') roundDepth--;
-                if (squareDepth < 0 || roundDepth < 0) return false;
+                if (current == '{') curlyDepth++;
+                if (current == '}') curlyDepth--;
+                if (squareDepth < 0 || roundDepth < 0 || curlyDepth < 0) return false;
             }
 
-            return !inSingle && !inDouble && squareDepth == 0 && roundDepth == 0;
+            return !inSingle && !inDouble && squareDepth == 0 && roundDepth == 0 && curlyDepth == 0;
+        }
+
+        private static string RemoveTopLevelAttributeBlocks(string value)
+        {
+            var builder = new StringBuilder();
+            var inSingle = false;
+            var inDouble = false;
+            var curlyDepth = 0;
+            for (var index = 0; index < (value ?? string.Empty).Length; index++)
+            {
+                var current = value[index];
+                var next = index + 1 < value.Length ? value[index + 1] : '\0';
+                if (current == '\'' && !inDouble)
+                {
+                    if (inSingle && next == '\'')
+                    {
+                        if (curlyDepth == 0)
+                        {
+                            builder.Append(current).Append(next);
+                        }
+
+                        index++;
+                        continue;
+                    }
+
+                    inSingle = !inSingle;
+                }
+                else if (current == '"' && !inSingle)
+                {
+                    if (inDouble && next == '"')
+                    {
+                        if (curlyDepth == 0)
+                        {
+                            builder.Append(current).Append(next);
+                        }
+
+                        index++;
+                        continue;
+                    }
+
+                    inDouble = !inDouble;
+                }
+
+                if (!inSingle && !inDouble && current == '{')
+                {
+                    curlyDepth++;
+                    continue;
+                }
+
+                if (!inSingle && !inDouble && current == '}')
+                {
+                    curlyDepth = Math.Max(0, curlyDepth - 1);
+                    continue;
+                }
+
+                if (curlyDepth == 0)
+                {
+                    builder.Append(current);
+                }
+            }
+
+            return builder.ToString().Trim();
         }
 
         private static string UnquoteIdentifier(string value)
@@ -1077,6 +1205,33 @@ namespace TiaSclStudio.Core.Importing
             }
 
             return false;
+        }
+
+        private static int FindTopLevelWord(string value, string word)
+        {
+            var start = 0;
+            while (start < (value ?? string.Empty).Length)
+            {
+                var index = value.IndexOf(word, start, StringComparison.OrdinalIgnoreCase);
+                if (index < 0)
+                {
+                    return -1;
+                }
+
+                var before = index == 0 ||
+                    !(char.IsLetterOrDigit(value[index - 1]) || value[index - 1] == '_');
+                var afterIndex = index + word.Length;
+                var after = afterIndex == value.Length ||
+                    !(char.IsLetterOrDigit(value[afterIndex]) || value[afterIndex] == '_');
+                if (before && after && FindTopLevel(value, word, index) == index)
+                {
+                    return index;
+                }
+
+                start = index + 1;
+            }
+
+            return -1;
         }
 
         private static string CollapseWhitespace(string value)
@@ -1184,16 +1339,22 @@ namespace TiaSclStudio.Core.Importing
 
         private sealed class ParsedDeclaration
         {
-            public ParsedDeclaration(IList<string> names, string dataType, string initialValue)
+            public ParsedDeclaration(
+                IList<string> names,
+                string dataType,
+                string initialValue,
+                bool isOverlay)
             {
                 Names = names;
                 DataType = dataType;
                 InitialValue = initialValue;
+                IsOverlay = isOverlay;
             }
 
             public IList<string> Names { get; private set; }
             public string DataType { get; private set; }
             public string InitialValue { get; private set; }
+            public bool IsOverlay { get; private set; }
         }
 
         private sealed class DeclarationStatement
@@ -1217,6 +1378,7 @@ namespace TiaSclStudio.Core.Importing
             private readonly StringBuilder _buffer = new StringBuilder();
             private readonly List<string> _pendingComments = new List<string>();
             private int _startLine;
+            private int _curlyDepth;
 
             public DeclarationCollector(SclLibraryImportResult result, string owner)
             {
@@ -1241,6 +1403,7 @@ namespace TiaSclStudio.Core.Importing
                 var inDouble = false;
                 var squareDepth = 0;
                 var roundDepth = 0;
+                var curlyDepth = _curlyDepth;
                 for (var index = 0; index < code.Length; index++)
                 {
                     var current = code[index];
@@ -1271,9 +1434,12 @@ namespace TiaSclStudio.Core.Importing
                         if (current == ']') squareDepth = Math.Max(0, squareDepth - 1);
                         if (current == '(') roundDepth++;
                         if (current == ')') roundDepth = Math.Max(0, roundDepth - 1);
+                        if (current == '{') curlyDepth++;
+                        if (current == '}') curlyDepth = Math.Max(0, curlyDepth - 1);
                     }
 
-                    if (current != ';' || inSingle || inDouble || squareDepth != 0 || roundDepth != 0)
+                    if (current != ';' || inSingle || inDouble || squareDepth != 0 ||
+                        roundDepth != 0 || curlyDepth != 0)
                     {
                         continue;
                     }
@@ -1291,6 +1457,8 @@ namespace TiaSclStudio.Core.Importing
                     _startLine = 0;
                     segmentStart = index + 1;
                 }
+
+                _curlyDepth = curlyDepth;
 
                 if (segmentStart < code.Length)
                 {
@@ -1320,6 +1488,7 @@ namespace TiaSclStudio.Core.Importing
                     _startLine == 0 ? line : _startLine,
                     1);
                 _buffer.Clear();
+                _curlyDepth = 0;
             }
 
             public void Reset()
@@ -1327,6 +1496,7 @@ namespace TiaSclStudio.Core.Importing
                 _buffer.Clear();
                 _pendingComments.Clear();
                 _startLine = 0;
+                _curlyDepth = 0;
             }
 
             private void AppendSegment(string segment, int line)

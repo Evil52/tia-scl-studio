@@ -85,6 +85,21 @@ namespace TiaSclStudio.TestSupport
             };
         }
 
+        public static DataBlockVariableDefinition DbVariable(
+            string dataBlockName,
+            string variableName,
+            string dataType,
+            bool generateDataBlock = true)
+        {
+            return new DataBlockVariableDefinition
+            {
+                DataBlockName = dataBlockName,
+                VariableName = variableName,
+                DataType = dataType,
+                GenerateDataBlock = generateDataBlock
+            };
+        }
+
         public static UdtDefinition Udt(string name, params UdtMember[] members)
         {
             var udt = new UdtDefinition { Name = name, Version = "0.1" };
@@ -147,6 +162,18 @@ namespace TiaSclStudio.TestSupport
             double y = 200.0)
         {
             var node = DiagramNodeFactory.CreateConstant(literal, dataType, x, y);
+            sheet.Nodes.Add(node);
+            return node;
+        }
+
+        public static DataBlockVariableNode PlaceDbVariable(
+            CallSheet sheet,
+            DataBlockVariableDefinition definition,
+            TerminalDirection direction,
+            double x = 10.0,
+            double y = 10.0)
+        {
+            var node = DiagramNodeFactory.CreateDataBlockVariable(definition, direction, x, y);
             sheet.Nodes.Add(node);
             return node;
         }

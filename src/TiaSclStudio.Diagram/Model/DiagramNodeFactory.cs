@@ -119,6 +119,44 @@ namespace TiaSclStudio.Diagram.Model
             return node;
         }
 
+        public static DataBlockVariableNode CreateDataBlockVariable(
+            DataBlockVariableDefinition definition,
+            TerminalDirection direction,
+            double x,
+            double y)
+        {
+            if (definition == null)
+            {
+                throw new ArgumentNullException("definition");
+            }
+
+            var node = new DataBlockVariableNode
+            {
+                DefinitionId = definition.Id,
+                DataBlockName = definition.DataBlockName,
+                VariableName = definition.VariableName,
+                DataType = definition.DataType,
+                TerminalDirection = direction,
+                Title = definition.DataBlockName + "." + definition.VariableName,
+                X = x,
+                Y = y
+            };
+
+            node.Pins.Add(new Pin
+            {
+                NodeId = node.Id,
+                Name = definition.VariableName,
+                Direction = direction == TerminalDirection.Source
+                    ? PinDirection.Output
+                    : PinDirection.Input,
+                Role = PinRole.Terminal,
+                DataType = definition.DataType,
+                Order = 0
+            });
+
+            return node;
+        }
+
         public static ConstantNode CreateConstant(
             string literal,
             string dataType,

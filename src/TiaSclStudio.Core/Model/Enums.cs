@@ -22,7 +22,8 @@ namespace TiaSclStudio.Core.Model
         Block = 1,
         InstanceDataBlocks = 2,
         CallBlock = 3,
-        CallBlockInstanceDataBlock = 4
+        CallBlockInstanceDataBlock = 4,
+        GlobalDataBlocks = 5
     }
 
     public enum ValidationSeverity

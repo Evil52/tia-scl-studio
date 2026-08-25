@@ -1152,6 +1152,12 @@ namespace TiaSclStudio.App
                 return tag.TerminalDirection == TerminalDirection.Sink ? 3 : 0;
             }
 
+            var dbVariable = node as DataBlockVariableNode;
+            if (dbVariable != null)
+            {
+                return dbVariable.TerminalDirection == TerminalDirection.Sink ? 3 : 0;
+            }
+
             if (node is ConstantNode)
             {
                 return 0;

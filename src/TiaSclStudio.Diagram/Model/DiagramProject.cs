@@ -9,7 +9,8 @@ namespace TiaSclStudio.Diagram.Model
     {
         public const int LegacyFormatVersion = 1;
         public const int GroupFormatVersion = 2;
-        public const int CurrentFormatVersion = 3;
+        public const int CpuFormatVersion = 3;
+        public const int CurrentFormatVersion = 4;
 
         public DiagramProject()
         {

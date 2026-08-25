@@ -486,6 +486,13 @@ namespace TiaSclStudio.App
                 {
                     member.DataType = canonical;
                 }
+                else if (block.ImportedInterfaceOnly &&
+                    block.Kind == BlockKind.FunctionBlock &&
+                    member.Section == InterfaceSection.Static &&
+                    PlcDataTypes.TryResolveSystemBlockInstanceType(member.DataType, out canonical))
+                {
+                    member.DataType = canonical;
+                }
                 else
                 {
                     AddTypeError(plan, sourceLine, block.Name + "." + member.Name, member.DataType);

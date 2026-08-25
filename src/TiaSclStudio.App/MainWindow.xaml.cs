@@ -441,6 +441,12 @@ namespace TiaSclStudio.App
                 return CreateTagVisual(tag);
             }
 
+            var dbVariable = node as DataBlockVariableNode;
+            if (dbVariable != null)
+            {
+                return CreateDbVariableVisual(dbVariable);
+            }
+
             var constant = node as ConstantNode;
             if (constant != null)
             {
@@ -671,6 +677,103 @@ namespace TiaSclStudio.App
 
             border.ToolTip = (isSource ? "Тег-источник: " : "Тег-приёмник: ") +
                 node.TagName + " : " + node.DataType;
+            border.Child = grid;
+            return border;
+        }
+
+        private FrameworkElement CreateDbVariableVisual(DataBlockVariableNode node)
+        {
+            var isSource = node.TerminalDirection == TerminalDirection.Source;
+            var accentColor = isSource ? "#C28CFF" : "#FFB45C";
+            var mutedColor = isSource ? "#352349" : "#49311D";
+            var border = CreateNodeBorder(
+                node,
+                210.0,
+                TerminalNodeHeight,
+                isSource ? "#241A32" : "#312318");
+            border.Uid = isSource ? "Node.DbVariable.Source" : "Node.DbVariable.Sink";
+            ApplyCompactNodeShadow(border);
+
+            var grid = new Grid { Margin = new Thickness(10, 4, 10, 4) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+
+            var badge = new Border
+            {
+                Width = 44,
+                Height = 26,
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = CreateColorBrush(mutedColor),
+                BorderBrush = CreateColorBrush(accentColor),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Child = new TextBlock
+                {
+                    Text = isSource ? "DB ▶" : "◀ DB",
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = CreateColorBrush(accentColor),
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 9,
+                    FontWeight = FontWeights.Bold
+                }
+            };
+
+            var titleStack = new StackPanel
+            {
+                Margin = isSource ? new Thickness(0, 0, 7, 0) : new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            titleStack.Children.Add(new TextBlock
+            {
+                Text = node.DataBlockName + "." + node.VariableName,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = GetBrush("TextBrush"),
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold
+            });
+            titleStack.Children.Add(new TextBlock
+            {
+                Text = "UDT · " + node.DataType,
+                Margin = new Thickness(0, 1, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = CreateColorBrush(accentColor),
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 8
+            });
+
+            if (isSource)
+            {
+                grid.Children.Add(titleStack);
+                Grid.SetColumn(badge, 1);
+                grid.Children.Add(badge);
+            }
+            else
+            {
+                grid.Children.Add(badge);
+                Grid.SetColumn(titleStack, 1);
+                grid.Children.Add(titleStack);
+            }
+
+            var pin = node.Pins.FirstOrDefault();
+            if (pin != null)
+            {
+                var pinButton = CreatePinDotButton(node, pin);
+                pinButton.HorizontalAlignment = isSource
+                    ? HorizontalAlignment.Right
+                    : HorizontalAlignment.Left;
+                pinButton.VerticalAlignment = VerticalAlignment.Center;
+                pinButton.Margin = isSource
+                    ? new Thickness(0, 0, -21, 0)
+                    : new Thickness(-21, 0, 0, 0);
+                Grid.SetColumnSpan(pinButton, 2);
+                Panel.SetZIndex(pinButton, 2);
+                grid.Children.Add(pinButton);
+            }
+
+            border.ToolTip = (isSource ? "DB-источник: " : "DB-приёмник: ") +
+                "\"" + node.DataBlockName + "\".\"" + node.VariableName + "\" : " + node.DataType;
             border.Child = grid;
             return border;
         }
@@ -1334,6 +1437,11 @@ namespace TiaSclStudio.App
             if (node is TagNode)
             {
                 return TerminalNodeWidth;
+            }
+
+            if (node is DataBlockVariableNode)
+            {
+                return 210.0;
             }
 
             if (node is LogicNode)

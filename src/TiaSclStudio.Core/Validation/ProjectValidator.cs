@@ -40,11 +40,13 @@ namespace TiaSclStudio.Core.Validation
             ValidateCollection(project.Blocks, "Project.Blocks", result);
             ValidateCollection(project.DataTypes, "Project.DataTypes", result);
             ValidateCollection(project.Tags, "Project.Tags", result);
+            ValidateCollection(project.DataBlockVariables, "Project.DataBlockVariables", result);
             ValidateCollection(project.CallBlocks, "Project.CallBlocks", result);
 
             var blocks = Safe(project.Blocks);
             var dataTypes = Safe(project.DataTypes);
             var tags = Safe(project.Tags);
+            var dataBlockVariables = Safe(project.DataBlockVariables);
             var callBlocks = Safe(project.CallBlocks);
 
             RegisterDuplicateNames(blocks.Select(block => block.Name), "Blocks", result);
@@ -67,6 +69,7 @@ namespace TiaSclStudio.Core.Validation
                     block.ReturnType,
                     block.Interface,
                     dataTypes,
+                    block.ImportedInterfaceOnly,
                     path,
                     ids,
                     result);
@@ -120,6 +123,69 @@ namespace TiaSclStudio.Core.Validation
                 }
             }
 
+            foreach (var group in dataBlockVariables.GroupBy(
+                item => item.DataBlockName ?? string.Empty,
+                StringComparer.OrdinalIgnoreCase))
+            {
+                var ownedStates = group.Select(item => item.GenerateDataBlock).Distinct().ToList();
+                if (ownedStates.Count > 1)
+                {
+                    result.Add(
+                        ValidationSeverity.Error,
+                        "DB_OWNERSHIP_MIXED",
+                        "One global DB cannot mix generated and reference-only variables.",
+                        "DataBlockVariables[" + Display(group.Key) + "]");
+                }
+
+                if (group.Any(item => item.GenerateDataBlock))
+                {
+                    RegisterGlobalSymbol(
+                        globalSymbols,
+                        group.Key,
+                        "DataBlockVariables[" + Display(group.Key) + "].DataBlockName",
+                        result);
+                }
+
+                foreach (var duplicate in group
+                    .GroupBy(item => item.VariableName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                    .Where(items => items.Count() > 1))
+                {
+                    result.Add(
+                        ValidationSeverity.Error,
+                        "DUPLICATE_DB_VARIABLE",
+                        "The global DB variable name is duplicated.",
+                        "DataBlockVariables[" + Display(group.Key) + "]." + Display(duplicate.Key));
+                }
+            }
+
+            foreach (var variable in dataBlockVariables)
+            {
+                var path = "DataBlockVariables[" + Display(variable.DataBlockName) + "." +
+                    Display(variable.VariableName) + "]";
+                ValidateId(variable.Id, path, ids, result);
+                ValidateName(variable.DataBlockName, path + ".DataBlockName", result);
+                ValidateName(variable.VariableName, path + ".VariableName", result);
+                ValidateDataType(variable.DataType, dataTypes, false, path + ".DataType", result);
+                ValidatePersistableText(variable.Comment, path + ".Comment", "The DB variable comment", result);
+
+                string canonicalType;
+                Guid udtId;
+                if (PlcDataTypes.TryResolve(
+                        variable.DataType,
+                        dataTypes,
+                        false,
+                        out canonicalType,
+                        out udtId) &&
+                    udtId == Guid.Empty)
+                {
+                    result.Add(
+                        ValidationSeverity.Error,
+                        "DB_VARIABLE_UDT_REQUIRED",
+                        "A visual DB variable must use a declared UDT.",
+                        path + ".DataType");
+                }
+            }
+
             foreach (var callBlock in callBlocks)
             {
                 var path = "CallBlocks[" + Display(callBlock.Name) + "]";
@@ -134,6 +200,7 @@ namespace TiaSclStudio.Core.Validation
                     callBlock.ReturnType,
                     callBlock.Interface,
                     dataTypes,
+                    false,
                     path,
                     ids,
                     result);
@@ -176,6 +243,7 @@ namespace TiaSclStudio.Core.Validation
             string returnType,
             IEnumerable<InterfaceMember> members,
             IEnumerable<UdtDefinition> dataTypes,
+            bool importedInterfaceOnly,
             string path,
             IDictionary<Guid, string> ids,
             ValidationResult result)
@@ -211,7 +279,17 @@ namespace TiaSclStudio.Core.Validation
                 var memberPath = path + ".Interface[" + Display(member.Name) + "]";
                 ValidateId(member.Id, memberPath, ids, result);
                 ValidateName(member.Name, memberPath + ".Name", result);
-                ValidateDataType(member.DataType, dataTypes, false, memberPath + ".DataType", result);
+                string systemInstanceType;
+                var importedSystemInstance = importedInterfaceOnly &&
+                    kind == BlockKind.FunctionBlock &&
+                    member.Section == InterfaceSection.Static &&
+                    PlcDataTypes.TryResolveSystemBlockInstanceType(
+                        member.DataType,
+                        out systemInstanceType);
+                if (!importedSystemInstance)
+                {
+                    ValidateDataType(member.DataType, dataTypes, false, memberPath + ".DataType", result);
+                }
                 ValidateSingleLine(
                     member.InitialValue,
                     memberPath + ".InitialValue",

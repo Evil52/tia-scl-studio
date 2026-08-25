@@ -463,6 +463,11 @@ namespace TiaSclStudio.App
                 return 154.0;
             }
 
+            if (node is DataBlockVariableNode)
+            {
+                return 210.0;
+            }
+
             if (node is LogicNode)
             {
                 return 224.0;

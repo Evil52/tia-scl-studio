@@ -41,11 +41,43 @@ namespace TiaSclStudio.Core.Tests
             Assert.Throws<ArgumentNullException>(() => generator.GenerateUdt(null));
             Assert.Throws<ArgumentNullException>(() => generator.GenerateUdts(null));
             Assert.Throws<ArgumentNullException>(() => generator.GenerateInstanceDbs(null));
+            Assert.Throws<ArgumentNullException>(() => generator.GenerateGlobalDataBlocks(null));
             Assert.Throws<ArgumentNullException>(() => generator.GenerateProject(null));
             Assert.Throws<ArgumentNullException>(() => generator.GenerateCallBlock(null, new BlockDefinition[0]));
             Assert.Throws<ArgumentNullException>(() => generator.GenerateCallBlockInstanceDb(null));
             Assert.Throws<ArgumentNullException>(
                 () => generator.GenerateCallBlock(new CallBlockDefinition(), (IEnumerable<BlockDefinition>)null));
+        }
+
+        [Fact]
+        public void GeneratesOwnedGlobalDbVariablesAfterTheirUdtSource()
+        {
+            var project = ModelBuilder.Plant();
+            project.DataTypes.Add(ModelBuilder.Udt("Valve_Data", new UdtMember("Open", "Bool")));
+            project.DataBlockVariables.Add(
+                ModelBuilder.DbVariable("DB_Valve", "Data", "Valve_Data"));
+
+            var sources = Generator().GenerateProject(project);
+            var dbSource = sources.Single(source => source.Kind == GeneratedSourceKind.GlobalDataBlocks);
+
+            Assert.Equal("10_GlobalDataBlocks.scl", dbSource.FileName);
+            Assert.True(
+                sources.Single(source => source.Kind == GeneratedSourceKind.DataTypes).Order < dbSource.Order);
+            Assert.Contains("DATA_BLOCK \"DB_Valve\"", dbSource.Content, StringComparison.Ordinal);
+            Assert.Contains("Data : \"Valve_Data\";", dbSource.Content, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void DoesNotGenerateAReferenceOnlyTiaDataBlock()
+        {
+            var project = ModelBuilder.Plant();
+            project.DataTypes.Add(ModelBuilder.Udt("Valve_Data"));
+            project.DataBlockVariables.Add(
+                ModelBuilder.DbVariable("Existing_DB", "Data", "Valve_Data", false));
+
+            Assert.DoesNotContain(
+                Generator().GenerateProject(project),
+                source => source.Kind == GeneratedSourceKind.GlobalDataBlocks);
         }
 
         // ---------------------------------------------------------------

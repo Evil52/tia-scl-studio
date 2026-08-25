@@ -29,7 +29,7 @@ namespace TiaSclStudio.Diagram.Generation
             }
 
             var validator = new DiagramValidator();
-            var issues = new List<DiagramIssue>(validator.Validate(sheet).Issues);
+            var issues = new List<DiagramIssue>(validator.Validate(project, sheet).Issues);
             if (sheet == null)
             {
                 return new DiagramCompilationResult(string.Empty, issues, new Guid[0]);
@@ -186,6 +186,17 @@ namespace TiaSclStudio.Diagram.Generation
                 }
             }
 
+            foreach (var dbName in (project.DataBlockVariables ?? new List<DataBlockVariableDefinition>())
+                .Where(item => item != null && item.GenerateDataBlock)
+                .Select(item => item.DataBlockName)
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(dbName))
+                {
+                    globalSymbols.Add(dbName);
+                }
+            }
+
             foreach (var callBlock in project.CallBlocks
                 .Where(item => item.Kind == BlockKind.FunctionBlock))
             {
@@ -304,9 +315,8 @@ namespace TiaSclStudio.Diagram.Generation
                     var expectedDirection = member.Section == InterfaceSection.Output
                         ? PinDirection.Output
                         : PinDirection.Input;
-                    var expectedRequired = member.Section == InterfaceSection.InOut;
                     if (pin.Direction != expectedDirection ||
-                        pin.IsRequired != expectedRequired ||
+                        (member.Section == InterfaceSection.InOut && !pin.IsRequired) ||
                         !PlcTypeCompatibility.AreExactlyCompatible(member.DataType, pin.DataType))
                     {
                         AddGenerationIssue(
@@ -397,6 +407,49 @@ namespace TiaSclStudio.Diagram.Generation
                         issues,
                         "GEN018",
                         "Tag terminal has a stale pin contract.",
+                        node.Id);
+                }
+            }
+
+
+            var dbVariables = (project.DataBlockVariables ?? new List<DataBlockVariableDefinition>())
+                .Where(item => item != null)
+                .GroupBy(item => item.Id)
+                .ToDictionary(group => group.Key, group => group.First());
+            foreach (var node in sheet.Nodes.OfType<DataBlockVariableNode>())
+            {
+                DataBlockVariableDefinition variable;
+                if (!dbVariables.TryGetValue(node.DefinitionId, out variable))
+                {
+                    AddGenerationIssue(
+                        issues,
+                        "GEN026",
+                        "Global DB variable definition for terminal '" + node.Title + "' was not found.",
+                        node.Id);
+                }
+                else if (!string.Equals(variable.DataBlockName, node.DataBlockName, StringComparison.Ordinal) ||
+                    !string.Equals(variable.VariableName, node.VariableName, StringComparison.Ordinal) ||
+                    !PlcTypeCompatibility.AreExactlyCompatible(variable.DataType, node.DataType))
+                {
+                    AddGenerationIssue(
+                        issues,
+                        "GEN027",
+                        "Global DB variable terminal is stale. Recreate it from the current definition.",
+                        node.Id);
+                }
+
+                var expectedDirection = node.TerminalDirection == TerminalDirection.Source
+                    ? PinDirection.Output
+                    : PinDirection.Input;
+                if (node.Pins.Count != 1 ||
+                    node.Pins[0].Role != PinRole.Terminal ||
+                    node.Pins[0].Direction != expectedDirection ||
+                    !PlcTypeCompatibility.AreExactlyCompatible(node.Pins[0].DataType, node.DataType))
+                {
+                    AddGenerationIssue(
+                        issues,
+                        "GEN028",
+                        "Global DB variable terminal has a stale pin contract.",
                         node.Id);
                 }
             }
@@ -538,14 +591,14 @@ namespace TiaSclStudio.Diagram.Generation
                             continue;
                         }
 
-                        var directTag = outgoing.Count == 1
-                            ? nodes[outgoing[0].TargetNodeId] as TagNode
-                            : null;
+                        var directTarget = outgoing.Count == 1
+                            ? ResolveWritableTargetExpression(nodes[outgoing[0].TargetNodeId], tags)
+                            : string.Empty;
 
                         var plan = new OutputPlan { DataType = pin.DataType };
-                        if (directTag != null)
+                        if (!string.IsNullOrEmpty(directTarget))
                         {
-                            plan.Expression = QuoteIdentifier(tags[directTag.TagDefinitionId].Name);
+                            plan.Expression = directTarget;
                         }
                         else
                         {
@@ -557,10 +610,10 @@ namespace TiaSclStudio.Diagram.Generation
 
                             foreach (var wire in outgoing)
                             {
-                                var tag = nodes[wire.TargetNodeId] as TagNode;
-                                if (tag != null)
+                                var target = ResolveWritableTargetExpression(nodes[wire.TargetNodeId], tags);
+                                if (!string.IsNullOrEmpty(target))
                                 {
-                                    plan.Assignments.Add(QuoteIdentifier(tags[tag.TagDefinitionId].Name) + " := " + plan.Expression);
+                                    plan.Assignments.Add(target + " := " + plan.Expression);
                                 }
                             }
                         }
@@ -605,11 +658,13 @@ namespace TiaSclStudio.Diagram.Generation
                 if (logicOutgoing.Count == 1)
                 {
                     logicPlan.Expression = logicExpression;
-                    var directTag = nodes[logicOutgoing[0].TargetNodeId] as TagNode;
-                    if (directTag != null)
+                    var directTarget = ResolveWritableTargetExpression(
+                        nodes[logicOutgoing[0].TargetNodeId],
+                        tags);
+                    if (!string.IsNullOrEmpty(directTarget))
                     {
                         logicPlan.Assignments.Add(
-                            QuoteIdentifier(tags[directTag.TagDefinitionId].Name) +
+                            directTarget +
                             " := " + logicExpression);
                     }
                 }
@@ -624,11 +679,11 @@ namespace TiaSclStudio.Diagram.Generation
 
                     foreach (var wire in logicOutgoing)
                     {
-                        var tag = nodes[wire.TargetNodeId] as TagNode;
-                        if (tag != null)
+                        var target = ResolveWritableTargetExpression(nodes[wire.TargetNodeId], tags);
+                        if (!string.IsNullOrEmpty(target))
                         {
                             logicPlan.Assignments.Add(
-                                QuoteIdentifier(tags[tag.TagDefinitionId].Name) +
+                                target +
                                 " := " + logicPlan.Expression);
                         }
                     }
@@ -638,6 +693,20 @@ namespace TiaSclStudio.Diagram.Generation
             }
 
             return plans;
+        }
+
+        private static string ResolveWritableTargetExpression(
+            CallNode node,
+            IDictionary<Guid, TagDefinition> tags)
+        {
+            var tag = node as TagNode;
+            if (tag != null)
+            {
+                return QuoteIdentifier(tags[tag.TagDefinitionId].Name);
+            }
+
+            var dbVariable = node as DataBlockVariableNode;
+            return dbVariable == null ? string.Empty : DbVariableExpression(dbVariable);
         }
 
         private static string BuildLogicExpression(
@@ -721,6 +790,16 @@ namespace TiaSclStudio.Diagram.Generation
                     "00_Types.scl",
                     generator.GenerateUdts(project.DataTypes),
                     GeneratedSourceKind.DataTypes,
+                    order++));
+            }
+
+            var globalDataBlocks = generator.GenerateGlobalDataBlocks(project);
+            if (!string.IsNullOrWhiteSpace(globalDataBlocks))
+            {
+                sources.Add(new GeneratedSource(
+                    "10_GlobalDataBlocks.scl",
+                    globalDataBlocks,
+                    GeneratedSourceKind.GlobalDataBlocks,
                     order++));
             }
 
@@ -946,6 +1025,13 @@ namespace TiaSclStudio.Diagram.Generation
                 return QuoteIdentifier(tags[tag.TagDefinitionId].Name);
             }
 
+
+            var dbVariable = sourceNode as DataBlockVariableNode;
+            if (dbVariable != null)
+            {
+                return DbVariableExpression(dbVariable);
+            }
+
             var constant = sourceNode as ConstantNode;
             if (constant != null)
             {
@@ -968,6 +1054,11 @@ namespace TiaSclStudio.Diagram.Generation
                 incoming.SourceNodeId,
                 incoming.Id));
             return string.Empty;
+        }
+
+        private static string DbVariableExpression(DataBlockVariableNode node)
+        {
+            return QuoteIdentifier(node.DataBlockName) + "." + QuoteIdentifier(node.VariableName);
         }
 
         private static void AppendInvocation(StringBuilder builder, string callExpression, IList<string> arguments)

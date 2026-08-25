@@ -4637,7 +4637,7 @@ namespace TiaSclStudio.SelfTest
             var inOutResult = new DiagramSclGenerator().Generate(
                 changedToInOut.Plant,
                 changedToInOut.Sheets[0]);
-            AssertIssue(inOutResult, "GEN015", "Current InOut requirement was not enforced.");
+            AssertIssue(inOutResult, "DGM020", "Current InOut requirement was not enforced.");
         }
 
         private static void VerifyFunctionReturnContract()
@@ -5531,20 +5531,20 @@ namespace TiaSclStudio.SelfTest
         {
             Assert(
                 new DiagramProject().FormatVersion == DiagramProject.CurrentFormatVersion &&
-                DiagramProject.CurrentFormatVersion == 3 &&
+                DiagramProject.CurrentFormatVersion == 4 &&
                 new DiagramProject().Plant.CpuFamily == PlcCpuFamily.S71200,
-                "New projects are not stamped with format v3.");
+                "New projects are not stamped with format v4.");
 
             var storage = new DiagramProjectStorage();
             var directory = Path.Combine(
                 Path.GetTempPath(),
-                "TiaSclStudio-FormatV3-" + Guid.NewGuid().ToString("N"));
+                "TiaSclStudio-FormatV4-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             var versionTwoPath = Path.Combine(directory, "GroupedV2.tiasclproj");
             var legacyPath = Path.Combine(directory, "LegacyV1.tiasclproj");
             var versionTwoLegacyPath = Path.Combine(directory, "GroupedV2Legacy.tiasclproj");
-            var upgradedPath = Path.Combine(directory, "UpgradedV3.tiasclproj");
-            var futurePath = Path.Combine(directory, "FutureV4.tiasclproj");
+            var upgradedPath = Path.Combine(directory, "UpgradedV4.tiasclproj");
+            var futurePath = Path.Combine(directory, "FutureV5.tiasclproj");
             var failedPath = Path.Combine(directory, "FailedUpgrade.tiasclproj");
             var unsupportedSavePath = Path.Combine(directory, "UnsupportedSave.tiasclproj");
 
@@ -5559,16 +5559,16 @@ namespace TiaSclStudio.SelfTest
                 storage.Save(versionTwoPath, groupedProject);
                 Assert(
                     groupedProject.FormatVersion == DiagramProject.CurrentFormatVersion,
-                    "Successful save did not leave the project stamped as v3.");
+                    "Successful save did not leave the project stamped as v4.");
                 Assert(
                     ReadProjectFormatVersion(versionTwoPath) == DiagramProject.CurrentFormatVersion,
-                    "A project with CPU/address settings was not persisted with format v3.");
+                    "A project with CPU/address settings was not persisted with format v4.");
 
                 var versionTwoReloaded = storage.Load(versionTwoPath);
                 var reloadedGroup = versionTwoReloaded.Sheets[0].Groups.Single(item => item.Id == group.Id);
                 Assert(
                     reloadedGroup.MemberNodeIds.SequenceEqual(group.MemberNodeIds),
-                    "The v3 loader did not preserve a group's direct members.");
+                    "The v4 loader did not preserve a group's direct members.");
 
                 RewriteProjectVersion(
                     versionTwoPath,
@@ -5579,14 +5579,14 @@ namespace TiaSclStudio.SelfTest
                 Assert(
                     legacyVersionTwoReloaded.FormatVersion == DiagramProject.GroupFormatVersion &&
                     legacyVersionTwoReloaded.Plant.CpuFamily == PlcCpuFamily.Unknown,
-                    "The v3 loader did not retain the version of a loaded v2 project.");
+                    "The v4 loader did not retain the version of a loaded v2 project.");
 
                 RewriteProjectVersion(versionTwoPath, legacyPath, DiagramProject.LegacyFormatVersion, true);
                 var legacyReloaded = storage.Load(legacyPath);
                 Assert(
                     legacyReloaded.FormatVersion == DiagramProject.LegacyFormatVersion &&
                     legacyReloaded.Plant.CpuFamily == PlcCpuFamily.Unknown,
-                    "The v3 loader did not retain the version of a loaded v1 project.");
+                    "The v4 loader did not retain the version of a loaded v1 project.");
                 Assert(
                     legacyReloaded.Sheets.All(sheet => sheet.Groups != null && sheet.Groups.Count == 0),
                     "A legacy v1 project without Groups did not receive empty group collections.");
@@ -5598,12 +5598,12 @@ namespace TiaSclStudio.SelfTest
                 Assert(
                     legacyReloaded.FormatVersion == DiagramProject.CurrentFormatVersion &&
                     ReadProjectFormatVersion(upgradedPath) == DiagramProject.CurrentFormatVersion,
-                    "Saving a loaded v1 project did not atomically upgrade it to v3.");
+                    "Saving a loaded v1 project did not atomically upgrade it to v4.");
                 Assert(
                     storage.Load(upgradedPath).Sheets[0].Groups.Any(item => item.Id == upgradedGroup.Id),
-                    "The v1-to-v3 save upgrade lost the newly added group.");
+                    "The v1-to-v4 save upgrade lost the newly added group.");
 
-                RewriteProjectVersion(versionTwoPath, futurePath, 4, false);
+                RewriteProjectVersion(versionTwoPath, futurePath, 5, false);
                 AssertThrows<NotSupportedException>(
                     () => storage.Load(futurePath),
                     "Load future project format");
@@ -5612,18 +5612,18 @@ namespace TiaSclStudio.SelfTest
                 failedUpgrade.Sheets[0].Nodes.Add(new NoteNode { Text = "invalid\u0001xml" });
                 AssertThrows<InvalidOperationException>(
                     () => storage.Save(failedPath, failedUpgrade),
-                    "Failed v1-to-v3 save upgrade");
+                    "Failed v1-to-v4 save upgrade");
                 Assert(
                     failedUpgrade.FormatVersion == DiagramProject.LegacyFormatVersion &&
                     !File.Exists(failedPath),
-                    "A failed save changed the in-memory v1 version or exposed a partial v3 file.");
+                    "A failed save changed the in-memory v1 version or exposed a partial v4 file.");
 
-                var unsupportedSave = new DiagramProject { FormatVersion = 4 };
+                var unsupportedSave = new DiagramProject { FormatVersion = 5 };
                 AssertThrows<NotSupportedException>(
                     () => storage.Save(unsupportedSavePath, unsupportedSave),
                     "Save future project format");
                 Assert(
-                    unsupportedSave.FormatVersion == 4 && !File.Exists(unsupportedSavePath),
+                    unsupportedSave.FormatVersion == 5 && !File.Exists(unsupportedSavePath),
                     "Rejected future-version save mutated the project or created a file.");
             }
             finally

@@ -109,6 +109,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="DbVariableNodeCreateWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="PlcAddressEditorControl.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -174,6 +178,7 @@
     </Compile>
     <Compile Include="NodeEditingLogic.cs" />
     <Compile Include="NodeCreationLogic.cs" />
+    <Compile Include="DbVariableNodeCreationLogic.cs" />
     <Compile Include="SheetNameWindow.xaml.cs">
       <DependentUpon>SheetNameWindow.xaml</DependentUpon>
     </Compile>
@@ -200,6 +205,9 @@
     </Compile>
     <Compile Include="TagNodeCreateWindow.xaml.cs">
       <DependentUpon>TagNodeCreateWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="DbVariableNodeCreateWindow.xaml.cs">
+      <DependentUpon>DbVariableNodeCreateWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="PlcAddressEditorControl.xaml.cs">
       <DependentUpon>PlcAddressEditorControl.xaml</DependentUpon>

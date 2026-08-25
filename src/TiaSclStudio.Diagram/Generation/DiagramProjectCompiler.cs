@@ -201,10 +201,12 @@ namespace TiaSclStudio.Diagram.Generation
             var isSafe = plant.Blocks != null &&
                 plant.DataTypes != null &&
                 plant.Tags != null &&
+                plant.DataBlockVariables != null &&
                 plant.CallBlocks != null &&
                 !plant.Blocks.Any(item => item == null || item.Interface == null || item.Interface.Any(member => member == null)) &&
                 !plant.DataTypes.Any(item => item == null || item.Members == null || item.Members.Any(member => member == null)) &&
                 !plant.Tags.Any(item => item == null) &&
+                !plant.DataBlockVariables.Any(item => item == null) &&
                 !plant.CallBlocks.Any(item =>
                     item == null ||
                     item.Interface == null ||
@@ -460,6 +462,18 @@ namespace TiaSclStudio.Diagram.Generation
                 }
             }
 
+
+            foreach (var variable in plant.DataBlockVariables ?? new List<DataBlockVariableDefinition>())
+            {
+                if (variable != null)
+                {
+                    RegisterPlantIdentity(
+                        identities,
+                        variable.Id,
+                        "global DB variable '" + variable.DataBlockName + "." + variable.VariableName + "'");
+                }
+            }
+
             foreach (var callBlock in plant.CallBlocks ?? new List<CallBlockDefinition>())
             {
                 if (callBlock == null)
@@ -617,6 +631,14 @@ namespace TiaSclStudio.Diagram.Generation
             foreach (var tag in plant.Tags)
             {
                 RegisterPlantSymbol(registry, tag.Name, "Plant tag");
+            }
+
+            foreach (var dbName in plant.DataBlockVariables
+                .Where(item => item.GenerateDataBlock)
+                .Select(item => item.DataBlockName)
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                RegisterPlantSymbol(registry, dbName, "Plant global data block");
             }
 
             foreach (var callBlock in plant.CallBlocks)
@@ -874,12 +896,14 @@ namespace TiaSclStudio.Diagram.Generation
                     return 0;
                 case GeneratedSourceKind.Block:
                     return 1;
-                case GeneratedSourceKind.InstanceDataBlocks:
+                case GeneratedSourceKind.GlobalDataBlocks:
                     return 2;
-                case GeneratedSourceKind.CallBlock:
+                case GeneratedSourceKind.InstanceDataBlocks:
                     return 3;
-                case GeneratedSourceKind.CallBlockInstanceDataBlock:
+                case GeneratedSourceKind.CallBlock:
                     return 4;
+                case GeneratedSourceKind.CallBlockInstanceDataBlock:
+                    return 5;
                 default:
                     return int.MaxValue;
             }

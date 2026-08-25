@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using TiaSclStudio.Core.Generation;
+using TiaSclStudio.Core.Model;
 using TiaSclStudio.Diagram.Generation;
 using TiaSclStudio.Diagram.Model;
 using TiaSclStudio.Diagram.Validation;
@@ -71,6 +72,69 @@ namespace TiaSclStudio.Integration.Tests
             var result = Compile(DemoProjects.Valve());
 
             Assert.Contains("TravelTime := T#3s", result.Scl, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void AnUnwiredFbInputWithoutADefaultIsOmittedFromTheCall()
+        {
+            var project = ModelBuilder.Project();
+            var block = ModelBuilder.FunctionBlock("FB_Optional", ModelBuilder.Input("Command"));
+            project.Plant.Blocks.Add(block);
+            var node = ModelBuilder.PlaceBlock(project.Sheets[0], block, "Optional01");
+            node.Pins.Single().IsRequired = true;
+
+            var result = Compile(project);
+
+            Assert.True(result.IsSuccess, Issues(result));
+            Assert.DoesNotContain("Command :=", result.Scl, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void AnUnwiredFcInputBlocksSclGeneration()
+        {
+            var project = ModelBuilder.Project();
+            var block = ModelBuilder.Function("FC_Required", "Void", ModelBuilder.Input("Command"));
+            project.Plant.Blocks.Add(block);
+            ModelBuilder.PlaceBlock(project.Sheets[0], block, "Required01");
+
+            var result = Compile(project);
+
+            Assert.False(result.IsSuccess);
+            Assert.Contains(result.Issues, issue => issue.Code == "DGM020");
+            Assert.Equal(string.Empty, result.Scl);
+        }
+
+        [Fact]
+        public void AGlobalDbUdtVariableCanFeedARequiredInOutPin()
+        {
+            var project = ModelBuilder.Project();
+            var udt = ModelBuilder.Udt("Valve_Data", new TiaSclStudio.Core.Model.UdtMember("Open", "Bool"));
+            var block = ModelBuilder.FunctionBlock(
+                "FB_ValveUnit",
+                ModelBuilder.InOut("HmiStr", "Valve_Data"));
+            var variable = ModelBuilder.DbVariable("DB_Valve", "Data", "Valve_Data");
+            project.Plant.DataTypes.Add(udt);
+            project.Plant.Blocks.Add(block);
+            project.Plant.DataBlockVariables.Add(variable);
+
+            var terminal = ModelBuilder.PlaceDbVariable(
+                project.Sheets[0],
+                variable,
+                TerminalDirection.Source);
+            var call = ModelBuilder.PlaceBlock(project.Sheets[0], block, "Valve01");
+            ModelBuilder.Connect(project.Sheets[0], terminal, "Data", call, "HmiStr");
+
+            var result = Compile(project);
+
+            Assert.True(result.IsSuccess, Issues(result));
+            Assert.Contains(
+                "HmiStr := \"DB_Valve\".\"Data\"",
+                result.Scl,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                result.GeneratedSources,
+                source => source.Kind == GeneratedSourceKind.GlobalDataBlocks &&
+                    source.Content.Contains("Data : \"Valve_Data\";"));
         }
 
         [Fact]

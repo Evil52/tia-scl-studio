@@ -109,7 +109,14 @@ namespace TiaSclStudio.App
             ObjectsGrid.ItemsSource = null;
             ObjectsGrid.ItemsSource = plan.Items;
             MessagesList.ItemsSource = null;
-            MessagesList.ItemsSource = plan.Messages;
+            MessagesList.ItemsSource = plan.Messages
+                .OrderBy(item => item.Severity == TiaSclStudio.Core.Importing.SclImportDiagnosticSeverity.Error ? 0 : 1)
+                .ThenBy(item => string.Equals(
+                    item.Code,
+                    "SCL_IMPORT_ATOMIC_BATCH_BLOCKED",
+                    System.StringComparison.Ordinal) ? 1 : 0)
+                .ThenBy(item => item.Line)
+                .ToList();
             SummaryText.Text = "Добавить: " + plan.AddCount +
                 " · обновить: " + plan.UpdateCount +
                 " · пропустить: " + plan.SkipCount +

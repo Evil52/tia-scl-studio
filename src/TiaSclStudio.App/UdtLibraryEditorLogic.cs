@@ -141,6 +141,12 @@ namespace TiaSclStudio.App
                         tagNode.DataType = RewriteByRenames(tagNode.DataType, renames);
                     }
 
+                    var dbVariableNode = node as DataBlockVariableNode;
+                    if (dbVariableNode != null)
+                    {
+                        dbVariableNode.DataType = RewriteByRenames(dbVariableNode.DataType, renames);
+                    }
+
                     var constantNode = node as ConstantNode;
                     if (constantNode != null)
                     {
@@ -154,6 +160,14 @@ namespace TiaSclStudio.App
                             pin.DataType = RewriteByRenames(pin.DataType, renames);
                         }
                     }
+                }
+            }
+
+            foreach (var variable in project.Plant.DataBlockVariables ?? new List<DataBlockVariableDefinition>())
+            {
+                if (variable != null)
+                {
+                    variable.DataType = RewriteByRenames(variable.DataType, renames);
                 }
             }
 
@@ -273,13 +287,23 @@ namespace TiaSclStudio.App
 
                     var tag = node as TagNode;
                     var constant = node as ConstantNode;
+                    var dbVariable = node as DataBlockVariableNode;
                     if ((tag != null && ReferencesAny(tag.DataType, names)) ||
+                        (dbVariable != null && ReferencesAny(dbVariable.DataType, names)) ||
                         (constant != null && ReferencesAny(constant.DataType, names)) ||
                         (node.Pins ?? new List<Pin>()).Any(pin =>
                             pin != null && ReferencesAny(pin.DataType, names)))
                     {
                         usages.Add("лист «" + sheet.Name + "», узел «" + node.Title + "»");
                     }
+                }
+            }
+
+            foreach (var variable in plant.DataBlockVariables ?? new List<DataBlockVariableDefinition>())
+            {
+                if (variable != null && ReferencesAny(variable.DataType, names))
+                {
+                    usages.Add("глобальная DB-переменная «" + variable.DataBlockName + "." + variable.VariableName + "»");
                 }
             }
 

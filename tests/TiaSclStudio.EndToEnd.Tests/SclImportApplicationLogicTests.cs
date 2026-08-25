@@ -81,6 +81,28 @@ namespace TiaSclStudio.App
         }
 
         [Fact]
+        public void ImportedFbAcceptsSiemensTimerInstancesOnlyInItsStaticSection()
+        {
+            var project = ModelBuilder.Project();
+            var parsed = Parse(
+                "FUNCTION_BLOCK Unit",
+                "VAR",
+                "   sOffTimeout : TON_TIME;",
+                "   sResetPulse : TP_TIME;",
+                "END_VAR",
+                "BEGIN",
+                "END_FUNCTION_BLOCK");
+
+            var plan = SclImportApplicationLogic.BuildPlan(project, parsed, false);
+
+            Assert.True(plan.CanApply, Messages(plan));
+            SclImportApplicationLogic.Apply(project, plan);
+            var block = Assert.Single(project.Plant.Blocks);
+            Assert.Equal("TON_TIME", block.Interface[0].DataType);
+            Assert.Equal("TP_TIME", block.Interface[1].DataType);
+        }
+
+        [Fact]
         public void AParserErrorBlocksOtherwiseValidPreviewRowsWithoutMutation()
         {
             var project = ModelBuilder.Project();

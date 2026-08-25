@@ -42,6 +42,7 @@
     <Compile Include="Generation\SclGenerator.cs" />
     <Compile Include="Model\BlockDefinition.cs" />
     <Compile Include="Model\CallBlockDefinition.cs" />
+    <Compile Include="Model\DataBlockVariableDefinition.cs" />
     <Compile Include="Model\Enums.cs" />
     <Compile Include="Model\InterfaceMember.cs" />
     <Compile Include="Model\ParameterBinding.cs" />

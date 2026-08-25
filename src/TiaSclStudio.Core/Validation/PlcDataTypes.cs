@@ -50,6 +50,15 @@ namespace TiaSclStudio.Core.Validation
         private static readonly IDictionary<string, string> BuiltIns =
             BuildBuiltInLookup();
 
+        private static readonly IDictionary<string, string> SystemBlockInstanceTypes =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "TON_TIME", "TON_TIME" },
+                { "TOF_TIME", "TOF_TIME" },
+                { "TP_TIME", "TP_TIME" },
+                { "TONR_TIME", "TONR_TIME" }
+            };
+
         private static readonly Regex SizedStringPattern = new Regex(
             "^(String|WString)\\s*\\[\\s*([0-9]+)\\s*\\]$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -212,6 +221,24 @@ namespace TiaSclStudio.Core.Validation
 
             referencedUdt = udts.FirstOrDefault(item => item.Id == udtId);
             return referencedUdt != null;
+        }
+
+        /// <summary>
+        /// Resolves Siemens system FB instance types found in generated block
+        /// interfaces. These are intentionally excluded from BuiltInTypes and
+        /// general TryResolve because they are not valid scalar tag/UDT types.
+        /// </summary>
+        public static bool TryResolveSystemBlockInstanceType(
+            string dataType,
+            out string canonicalType)
+        {
+            canonicalType = string.Empty;
+            if (string.IsNullOrWhiteSpace(dataType) || SclText.HasControlCharacters(dataType))
+            {
+                return false;
+            }
+
+            return SystemBlockInstanceTypes.TryGetValue(dataType.Trim(), out canonicalType);
         }
 
         public static string QuoteUdtName(string name)

@@ -245,7 +245,9 @@ namespace TiaSclStudio.App
                         sourcePin.Direction != PinDirection.Output ||
                         targetPin.Direction != PinDirection.Input ||
                         !PlcTypeCompatibility.AreExactlyCompatible(sourcePin.DataType, targetPin.DataType) ||
-                        (targetPin.IsRequired && !(sourceNode is TagNode)))
+                        (targetPin.IsRequired &&
+                         !(sourceNode is TagNode) &&
+                         !(sourceNode is DataBlockVariableNode)))
                     {
                         plan.WireRemovals.Add(new WireRemoval(sheet, wire));
                     }

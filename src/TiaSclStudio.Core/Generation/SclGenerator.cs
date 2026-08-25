@@ -175,6 +175,47 @@ namespace TiaSclStudio.Core.Generation
             return JoinSources(sources);
         }
 
+        public string GenerateGlobalDataBlocks(PlantProject project)
+        {
+            if (project == null)
+            {
+                throw new ArgumentNullException("project");
+            }
+
+            var builder = new StringBuilder();
+            foreach (var group in Safe(project.DataBlockVariables)
+                .Where(item => item.GenerateDataBlock)
+                .GroupBy(item => item.DataBlockName, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                if (builder.Length > 0)
+                {
+                    builder.Append(NewLine);
+                }
+
+                builder.Append("DATA_BLOCK ").Append(QuoteGlobal(group.Key)).Append(NewLine);
+                AppendOptimizedAccess(builder, true);
+                builder.Append("VERSION : 0.1").Append(NewLine);
+                builder.Append("   VAR").Append(NewLine);
+                foreach (var variable in group.OrderBy(item => item.VariableName, StringComparer.OrdinalIgnoreCase))
+                {
+                    AppendDeclaration(
+                        builder,
+                        variable.VariableName,
+                        CanonicalizeDataType(variable.DataType, project.DataTypes, false),
+                        string.Empty,
+                        variable.Comment,
+                        "      ");
+                }
+
+                builder.Append("   END_VAR").Append(NewLine);
+                builder.Append("BEGIN").Append(NewLine);
+                builder.Append("END_DATA_BLOCK").Append(NewLine);
+            }
+
+            return builder.ToString();
+        }
+
         public string GenerateCallBlock(CallBlockDefinition callBlock, IEnumerable<BlockDefinition> blocks)
         {
             return GenerateCallBlock(callBlock, blocks, new UdtDefinition[0]);
@@ -295,6 +336,16 @@ namespace TiaSclStudio.Core.Generation
                     "00_Types.scl",
                     GenerateUdts(project.DataTypes),
                     GeneratedSourceKind.DataTypes,
+                    order++));
+            }
+
+            var globalDataBlocks = GenerateGlobalDataBlocks(project);
+            if (!string.IsNullOrWhiteSpace(globalDataBlocks))
+            {
+                result.Add(new GeneratedSource(
+                    "10_GlobalDataBlocks.scl",
+                    globalDataBlocks,
+                    GeneratedSourceKind.GlobalDataBlocks,
                     order++));
             }
 

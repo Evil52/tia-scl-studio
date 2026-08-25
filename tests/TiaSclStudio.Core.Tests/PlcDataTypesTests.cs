@@ -95,6 +95,29 @@ namespace TiaSclStudio.Core.Tests
         }
 
         [Theory]
+        [InlineData("ton_time", "TON_TIME")]
+        [InlineData(" TOF_TIME ", "TOF_TIME")]
+        [InlineData("tp_time", "TP_TIME")]
+        [InlineData("TONR_TIME", "TONR_TIME")]
+        public void ResolvesSystemTimerInstancesSeparatelyFromScalarTypes(
+            string input,
+            string expected)
+        {
+            string canonical;
+            Guid udtId;
+
+            Assert.True(PlcDataTypes.TryResolveSystemBlockInstanceType(input, out canonical));
+            Assert.Equal(expected, canonical);
+            Assert.False(PlcDataTypes.TryResolve(
+                input,
+                new UdtDefinition[0],
+                false,
+                out canonical,
+                out udtId));
+            Assert.DoesNotContain(expected, PlcDataTypes.BuiltInTypes);
+        }
+
+        [Theory]
         [InlineData("MotorState")]
         [InlineData("motorstate")]
         [InlineData("\"MotorState\"")]

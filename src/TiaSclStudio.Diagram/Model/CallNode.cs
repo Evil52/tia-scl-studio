@@ -6,6 +6,7 @@ namespace TiaSclStudio.Diagram.Model
 {
     [XmlInclude(typeof(BlockCallNode))]
     [XmlInclude(typeof(TagNode))]
+    [XmlInclude(typeof(DataBlockVariableNode))]
     [XmlInclude(typeof(ConstantNode))]
     [XmlInclude(typeof(LogicNode))]
     [XmlInclude(typeof(NoteNode))]
@@ -66,6 +67,29 @@ namespace TiaSclStudio.Diagram.Model
         public Guid TagDefinitionId { get; set; }
 
         public string TagName { get; set; }
+
+        public string DataType { get; set; }
+
+        public TerminalDirection TerminalDirection { get; set; }
+    }
+
+    public sealed class DataBlockVariableNode : CallNode
+    {
+        public DataBlockVariableNode()
+        {
+            DataBlockName = string.Empty;
+            VariableName = string.Empty;
+            DataType = string.Empty;
+        }
+
+        [XmlIgnore]
+        public override CallNodeKind Kind { get { return CallNodeKind.DataBlockVariable; } }
+
+        public Guid DefinitionId { get; set; }
+
+        public string DataBlockName { get; set; }
+
+        public string VariableName { get; set; }
 
         public string DataType { get; set; }
 

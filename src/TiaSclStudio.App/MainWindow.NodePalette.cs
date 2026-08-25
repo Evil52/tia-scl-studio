@@ -162,6 +162,40 @@ namespace TiaSclStudio.App
                 "-терминал PLC-тега " + created.Title + " добавлен");
         }
 
+        private void AddDbVariableNode_Click(object sender, RoutedEventArgs e)
+        {
+            if (!EnsureModelEditingAvailable() || _sheet == null || _project == null)
+            {
+                return;
+            }
+
+            var targetSheetId = _sheet.Id;
+            var editor = new DbVariableNodeCreateWindow(_project, targetSheetId) { Owner = this };
+            if (editor.ShowDialog() != true || editor.Result == null)
+            {
+                return;
+            }
+
+            var result = editor.Result;
+            if (!TryCommitSemanticEdit(
+                result.CreateDefinition
+                    ? "Создание DB-переменной " + result.Definition.DataBlockName + "." + result.Definition.VariableName
+                    : "Добавление терминала DB-переменной",
+                () =>
+                {
+                    DbVariableNodeCreationLogic.Apply(_project, targetSheetId, result);
+                    PositionNewNodeAtViewportCenter(result.Node);
+                }))
+            {
+                return;
+            }
+
+            CompleteNodeCreation(
+                result.Node,
+                "DB-переменная " + result.Definition.DataBlockName + "." +
+                result.Definition.VariableName + " добавлена на лист");
+        }
+
         private void AddLogicNode_Click(object sender, RoutedEventArgs e)
         {
             if (!EnsureModelEditingAvailable() || _sheet == null)

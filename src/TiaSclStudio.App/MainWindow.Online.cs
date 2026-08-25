@@ -770,6 +770,8 @@ namespace TiaSclStudio.App
                     return TiaSourceKind.Types;
                 case GeneratedSourceKind.Block:
                     return TiaSourceKind.Block;
+                case GeneratedSourceKind.GlobalDataBlocks:
+                    return TiaSourceKind.Instances;
                 case GeneratedSourceKind.InstanceDataBlocks:
                     return TiaSourceKind.Instances;
                 case GeneratedSourceKind.CallBlock:

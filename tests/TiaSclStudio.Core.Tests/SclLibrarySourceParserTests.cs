@@ -101,6 +101,69 @@ namespace TiaSclStudio.Core.Tests
         }
 
         [Fact]
+        public void ImportsTiaMemberAttributesWithoutTreatingThemAsPartOfTheName()
+        {
+            var result = Parse(
+                "FUNCTION_BLOCK Unit",
+                "VAR_OUTPUT",
+                "   Feedback { ExternalAccessible := 'False'; ExternalVisible := 'False';",
+                "      ExternalWritable := 'False' } : Bool;",
+                "   ExtFault { ExternalAccessible := 'True' } : Bool;",
+                "END_VAR",
+                "BEGIN",
+                "END_FUNCTION_BLOCK");
+
+            Assert.False(result.HasErrors, Codes(result));
+            var block = Assert.Single(result.Items).Block;
+            Assert.Equal(2, block.Interface.Count);
+            AssertMember(block, "Feedback", "Bool", InterfaceSection.Output, string.Empty);
+            AssertMember(block, "ExtFault", "Bool", InterfaceSection.Output, string.Empty);
+        }
+
+        [Fact]
+        public void ImportsRetainSectionsAndSilentlySkipsNonInterfaceTiaMetadata()
+        {
+            var result = Parse(
+                "FUNCTION_BLOCK Unit",
+                "VAR_INPUT RETAIN",
+                "   Enable : Bool;",
+                "   tModeBits AT tInMode : Array[0..7] of Bool;",
+                "END_VAR",
+                "VAR RETAIN",
+                "   State : Int;",
+                "END_VAR",
+                "VAR CONSTANT",
+                "   UnitState.SwitchingOn : Int := 1;",
+                "END_VAR",
+                "BEGIN",
+                "END_FUNCTION_BLOCK");
+
+            Assert.False(result.HasErrors, Codes(result));
+            var block = Assert.Single(result.Items).Block;
+            AssertMember(block, "Enable", "Bool", InterfaceSection.Input, string.Empty);
+            AssertMember(block, "State", "Int", InterfaceSection.Static, string.Empty);
+            Assert.DoesNotContain(block.Interface, member => member.Name == "tModeBits");
+            Assert.Empty(result.Diagnostics);
+        }
+
+        [Fact]
+        public void ImportsDbSpecificOutputAsARegularOutputPin()
+        {
+            var result = Parse(
+                "FUNCTION_BLOCK ModeSelector",
+                "VAR_OUTPUT DB_SPECIFIC",
+                "   Mode : Int;",
+                "END_VAR",
+                "BEGIN",
+                "END_FUNCTION_BLOCK");
+
+            Assert.False(result.HasErrors, Codes(result));
+            var block = Assert.Single(result.Items).Block;
+            AssertMember(block, "Mode", "Int", InterfaceSection.Output, string.Empty);
+            Assert.Empty(result.Diagnostics);
+        }
+
+        [Fact]
         public void ImportsAUserDataTypeWithArraysInitialValuesAndComments()
         {
             var result = Parse(

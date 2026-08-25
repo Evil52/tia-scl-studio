@@ -356,6 +356,52 @@ namespace TiaSclStudio.Diagram.Tests
         }
 
         [Fact]
+        public void ProjectAwareValidationIgnoresAStaleRequiredFlagOnAnFbInput()
+        {
+            var project = ModelBuilder.Project();
+            var block = ModelBuilder.FunctionBlock("FB_A", ModelBuilder.Input("Command"));
+            project.Plant.Blocks.Add(block);
+            var node = ModelBuilder.PlaceBlock(project.Sheets[0], block, "A01");
+            node.Pins.Single().IsRequired = true;
+
+            var result = new DiagramValidator().Validate(project.Plant, project.Sheets[0]);
+
+            Assert.False(HasCode(result, "DGM020"), Codes(result));
+        }
+
+        [Fact]
+        public void ProjectAwareValidationRequiresAnFcInput()
+        {
+            var project = ModelBuilder.Project();
+            var block = ModelBuilder.Function("FC_A", "Void", ModelBuilder.Input("Command"));
+            project.Plant.Blocks.Add(block);
+            ModelBuilder.PlaceBlock(project.Sheets[0], block, "A01");
+
+            var result = new DiagramValidator().Validate(project.Plant, project.Sheets[0]);
+
+            Assert.True(HasCode(result, "DGM020"), Codes(result));
+        }
+
+        [Fact]
+        public void ProjectAwareValidationDoesNotTreatAnFcInputAsInOut()
+        {
+            var project = ModelBuilder.Project();
+            var block = ModelBuilder.Function("FC_A", "Void", ModelBuilder.Input("Command"));
+            project.Plant.Blocks.Add(block);
+            var call = ModelBuilder.PlaceBlock(project.Sheets[0], block, "A01");
+            var constant = ModelBuilder.PlaceConstant(project.Sheets[0], "TRUE", "Bool");
+            ModelBuilder.Connect(
+                project.Sheets[0],
+                ModelBuilder.OnlyPin(constant),
+                ModelBuilder.PinOf(call, "Command"));
+
+            var result = new DiagramValidator().Validate(project.Plant, project.Sheets[0]);
+
+            Assert.False(HasCode(result, "DGM015"), Codes(result));
+            Assert.False(HasCode(result, "DGM020"), Codes(result));
+        }
+
+        [Fact]
         public void ReportsAnInOutPinFedFromSomethingThatIsNotATag()
         {
             var project = ModelBuilder.Project();

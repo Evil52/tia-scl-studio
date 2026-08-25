@@ -4,6 +4,7 @@ namespace TiaSclStudio.Diagram.Model
     {
         BlockCall,
         Tag,
+        DataBlockVariable,
         Constant,
         Logic,
         Note

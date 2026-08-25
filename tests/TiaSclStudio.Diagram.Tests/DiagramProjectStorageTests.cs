@@ -64,6 +64,34 @@ namespace TiaSclStudio.Diagram.Tests
         }
 
         [Fact]
+        public void RoundTripsAGlobalDbVariableTerminal()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var path = directory.File("db-variable.tiasclproj");
+                var project = ModelBuilder.Project();
+                project.Plant.DataTypes.Add(ModelBuilder.Udt("Valve_Data"));
+                var definition = ModelBuilder.DbVariable("DB_Valve", "Data", "Valve_Data");
+                project.Plant.DataBlockVariables.Add(definition);
+                var node = ModelBuilder.PlaceDbVariable(
+                    project.Sheets[0],
+                    definition,
+                    TerminalDirection.Source);
+
+                Storage().Save(path, project);
+                var reloaded = Storage().Load(path);
+                var reloadedNode = Assert.IsType<DataBlockVariableNode>(reloaded.Sheets[0].Nodes.Single());
+
+                Assert.Equal(DiagramProject.CurrentFormatVersion, reloaded.FormatVersion);
+                Assert.Equal(definition.Id, reloaded.Plant.DataBlockVariables.Single().Id);
+                Assert.Equal(node.DefinitionId, reloadedNode.DefinitionId);
+                Assert.Equal("DB_Valve", reloadedNode.DataBlockName);
+                Assert.Equal("Data", reloadedNode.VariableName);
+                Assert.Equal("Valve_Data", reloadedNode.DataType);
+            }
+        }
+
+        [Fact]
         public void RoundTripPreservesEveryStableIdentity()
         {
             using (var directory = new TemporaryDirectory())

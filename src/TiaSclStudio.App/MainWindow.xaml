@@ -361,6 +361,14 @@
                                         ToolTip="Добавить типизированную SCL-константу"
                                         Click="AddConstantNode_Click" />
                             </UniformGrid>
+                            <Button x:Name="DbVariablePaletteButton"
+                                    Content="DB · UDT"
+                                    Margin="0,7,0,0"
+                                    Padding="5,7"
+                                    FontFamily="Consolas"
+                                    Style="{StaticResource ActionButtonStyle}"
+                                    ToolTip="Создать или использовать глобальную DB-переменную UDT для INPUT/IN_OUT/OUTPUT"
+                                    Click="AddDbVariableNode_Click" />
                             <TextBlock Margin="2,12,2,5"
                                        Text="ЛОГИКА И ЗАМЕТКИ"
                                        Style="{StaticResource SectionTitleStyle}" />

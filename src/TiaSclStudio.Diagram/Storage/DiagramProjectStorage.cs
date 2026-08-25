@@ -64,8 +64,8 @@ namespace TiaSclStudio.Diagram.Storage
             var saveCompleted = false;
             try
             {
-                // Groups were added in format v2 and the PLC CPU/address profile
-                // in v3. Always stamp a successful save with the current version
+                // Groups were added in v2, the PLC CPU/address profile in v3,
+                // and global DB-variable nodes in v4. Always stamp a successful save
                 // so an older binary rejects fields it would otherwise ignore.
                 project.FormatVersion = DiagramProject.CurrentFormatVersion;
                 using (var stream = new FileStream(
@@ -152,6 +152,7 @@ namespace TiaSclStudio.Diagram.Storage
         {
             if (formatVersion != DiagramProject.LegacyFormatVersion &&
                 formatVersion != DiagramProject.GroupFormatVersion &&
+                formatVersion != DiagramProject.CpuFormatVersion &&
                 formatVersion != DiagramProject.CurrentFormatVersion)
             {
                 throw new NotSupportedException(

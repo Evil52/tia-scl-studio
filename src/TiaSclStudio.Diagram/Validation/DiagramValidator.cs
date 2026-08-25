@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using TiaSclStudio.Core.Model;
 using TiaSclStudio.Core.Validation;
 using TiaSclStudio.Diagram.Model;
 
@@ -9,6 +10,11 @@ namespace TiaSclStudio.Diagram.Validation
     public sealed class DiagramValidator
     {
         public DiagramValidationResult Validate(CallSheet sheet)
+        {
+            return Validate(null, sheet);
+        }
+
+        public DiagramValidationResult Validate(PlantProject project, CallSheet sheet)
         {
             var issues = new List<DiagramIssue>();
             if (sheet == null)
@@ -53,12 +59,14 @@ namespace TiaSclStudio.Diagram.Validation
             var targetUsage = new Dictionary<Guid, Guid>();
             foreach (var wire in sheet.Wires)
             {
-                ValidateWire(wire, nodes, pins, targetUsage, issues);
+                ValidateWire(project, wire, nodes, pins, targetUsage, issues);
             }
 
             foreach (var node in sheet.Nodes)
             {
-                foreach (var pin in node.Pins.Where(item => item.Direction == PinDirection.Input && item.IsRequired))
+                foreach (var pin in node.Pins.Where(item =>
+                    item.Direction == PinDirection.Input &&
+                    IsConnectionRequired(project, node, item)))
                 {
                     if (!targetUsage.ContainsKey(pin.Id))
                     {
@@ -674,9 +682,27 @@ namespace TiaSclStudio.Diagram.Validation
                 }
             }
 
+            var dbVariable = node as DataBlockVariableNode;
+            if (dbVariable != null && dbVariable.Pins.Count == 1)
+            {
+                var expected = dbVariable.TerminalDirection == TerminalDirection.Source
+                    ? PinDirection.Output
+                    : PinDirection.Input;
+                if (dbVariable.Pins[0].Direction != expected)
+                {
+                    issues.Add(new DiagramIssue(
+                        DiagramIssueSeverity.Error,
+                        "DGM006",
+                        "DB-variable terminal direction does not match its pin direction.",
+                        node.Id,
+                        null));
+                }
+            }
+
         }
 
         private static void ValidateWire(
+            PlantProject project,
             Wire wire,
             IDictionary<Guid, CallNode> nodes,
             IDictionary<Guid, Pin> pins,
@@ -751,16 +777,77 @@ namespace TiaSclStudio.Diagram.Validation
 
             if (targetNode is BlockCallNode &&
                 targetPin.Role == PinRole.Parameter &&
-                targetPin.IsRequired &&
-                !(sourceNode is TagNode))
+                IsInOutParameter(project, targetNode, targetPin) &&
+                !(sourceNode is TagNode) &&
+                !(sourceNode is DataBlockVariableNode))
             {
                 issues.Add(new DiagramIssue(
                     DiagramIssueSeverity.Error,
                     "DGM015",
-                    "An InOut pin must be connected to a writable tag in the first implementation.",
+                    "An InOut pin must be connected to a writable PLC tag or global DB variable.",
                     targetNode.Id,
                     wire.Id));
             }
+        }
+
+        private static bool IsConnectionRequired(
+            PlantProject project,
+            CallNode node,
+            Pin pin)
+        {
+            BlockDefinition definition;
+            InterfaceMember member;
+            if (!TryResolveParameter(project, node, pin, out definition, out member))
+            {
+                return pin.IsRequired;
+            }
+
+            return member.Section == InterfaceSection.InOut ||
+                (definition.Kind == BlockKind.Function &&
+                 member.Section == InterfaceSection.Input);
+        }
+
+        private static bool IsInOutParameter(
+            PlantProject project,
+            CallNode node,
+            Pin pin)
+        {
+            BlockDefinition definition;
+            InterfaceMember member;
+            return TryResolveParameter(project, node, pin, out definition, out member)
+                ? member.Section == InterfaceSection.InOut
+                : pin.IsRequired;
+        }
+
+        private static bool TryResolveParameter(
+            PlantProject project,
+            CallNode node,
+            Pin pin,
+            out BlockDefinition definition,
+            out InterfaceMember member)
+        {
+            definition = null;
+            member = null;
+            var blockNode = node as BlockCallNode;
+            if (project == null ||
+                project.Blocks == null ||
+                blockNode == null ||
+                pin == null ||
+                pin.Role != PinRole.Parameter)
+            {
+                return false;
+            }
+
+            definition = project.Blocks.FirstOrDefault(item =>
+                item != null && item.Id == blockNode.BlockDefinitionId);
+            if (definition == null || definition.Interface == null)
+            {
+                return false;
+            }
+
+            member = definition.Interface.FirstOrDefault(item =>
+                item != null && item.Id == pin.MemberId);
+            return member != null;
         }
     }
 }
