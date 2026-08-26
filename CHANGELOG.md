@@ -6,6 +6,13 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-26
+
+### Fixed
+
+- The production release workflow now uses Windows PowerShell 5.1, matching the
+  documented Windows/TIA runner prerequisites without requiring PowerShell 7.
+
 ## [0.3.0] - 2026-08-26
 
 ### Fixed

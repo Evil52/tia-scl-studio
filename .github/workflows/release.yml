@@ -36,7 +36,7 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Resolve release tag
-        shell: pwsh
+        shell: powershell
         run: |
           $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
             '${{ inputs.tag }}'
@@ -49,7 +49,7 @@ jobs:
           "RELEASE_TAG=$tag" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Locate Siemens Openness V17 facade
-        shell: pwsh
+        shell: powershell
         run: |
           $candidates = 20..17 | ForEach-Object {
             "C:\Program Files\Siemens\Automation\Portal V$_\PublicAPI\V17\Siemens.Engineering.dll"
@@ -65,7 +65,7 @@ jobs:
         run: msbuild TiaSclStudio.sln -t:Restore -v:minimal -nologo
 
       - name: Build real Legacy V17 adapter
-        shell: pwsh
+        shell: powershell
         run: |
           msbuild TiaSclStudio.sln -t:Rebuild `
             -p:Configuration=Release `
@@ -77,7 +77,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE." }
 
       - name: Verify deployable adapter
-        shell: pwsh
+        shell: powershell
         run: |
           [Reflection.Assembly]::LoadFrom((Resolve-Path 'src\TiaSclStudio.Openness\bin\x64\Release\TiaSclStudio.Openness.dll')) | Out-Null
           [Reflection.Assembly]::LoadFrom($env:TIA_OPENNESS_V17) | Out-Null
@@ -90,11 +90,11 @@ jobs:
           }
 
       - name: Run all tests
-        shell: pwsh
+        shell: powershell
         run: .\build\Invoke-Tests.ps1 -Configuration Release -NoBuild
 
       - name: Run offline acceptance checks
-        shell: pwsh
+        shell: powershell
         run: |
           .\tools\selftest\bin\Release\TiaSclStudio.SelfTest.exe "$env:RUNNER_TEMP\tiascl-selftest"
           if ($LASTEXITCODE -ne 0) { throw "SelfTest failed with exit code $LASTEXITCODE." }
@@ -103,7 +103,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "WPF smoke failed with exit code $LASTEXITCODE." }
 
       - name: Authenticode sign when certificate secrets are configured
-        shell: pwsh
+        shell: powershell
         env:
           SIGNING_CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT_BASE64 }}
           SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
@@ -138,7 +138,7 @@ jobs:
           }
 
       - name: Package release
-        shell: pwsh
+        shell: powershell
         run: |
           $releaseRoot = Join-Path $PWD 'artifacts\release'
           $packageName = "TiaSclStudio-$env:RELEASE_TAG-win-x64"

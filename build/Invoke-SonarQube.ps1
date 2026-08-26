@@ -53,7 +53,7 @@ $ErrorActionPreference = 'Stop'
 $root = Get-RepositoryRoot
 $projectKey = 'tia-scl-studio'
 $projectName = 'TIA SCL Studio'
-$projectVersion = '0.3.0'
+$projectVersion = '0.3.1'
 
 # ---------------------------------------------------------------------------
 # Prerequisites, checked up front so a missing one fails in a second rather
