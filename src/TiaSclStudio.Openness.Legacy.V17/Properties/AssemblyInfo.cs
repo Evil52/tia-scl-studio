@@ -14,5 +14,5 @@ using System.Runtime.InteropServices;
 [assembly: InternalsVisibleTo("TiaSclStudio.SelfTest")]
 [assembly: InternalsVisibleTo("TiaSclStudio.Openness.Tests")]
 [assembly: Guid("9DD808A3-7846-4293-887A-6D6B2F4713E1")]
-[assembly: AssemblyVersion("0.2.0.0")]
-[assembly: AssemblyFileVersion("0.2.0.0")]
+[assembly: AssemblyVersion("0.3.0.0")]
+[assembly: AssemblyFileVersion("0.3.0.0")]

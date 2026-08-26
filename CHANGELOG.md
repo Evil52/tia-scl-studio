@@ -6,6 +6,8 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-26
+
 ### Fixed
 
 - **Overlapping PLC tag addresses are now reported.** Two tags could each carry
