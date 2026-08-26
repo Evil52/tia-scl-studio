@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -71,7 +71,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -104,7 +104,7 @@ jobs:
     needs: build-and-test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Sonar's new-code detection needs the history, not just the tip.
           fetch-depth: 0
