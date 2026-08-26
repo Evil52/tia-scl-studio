@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Windows;
 using System.Windows.Controls;
 using TiaSclStudio.Core.Importing;
@@ -145,6 +146,25 @@ namespace TiaSclStudio.App
 
             Assert.False(TiaLibraryImportUiLogic.Prepare(unavailable).CanPreview);
             Assert.False(TiaLibraryImportUiLogic.Prepare(empty).CanPreview);
+        }
+
+        [Fact]
+        public void NullInputsAreRejectedAndObjectsWithoutSclAreReported()
+        {
+            Assert.Throws<ArgumentNullException>(() => TiaLibraryImportUiLogic.Prepare(null));
+            Assert.Throws<ArgumentNullException>(() =>
+                TiaLibraryImportUiLogic.CreatePresentation(null));
+
+            var malformed = (TiaLibrarySource)FormatterServices.GetUninitializedObject(
+                typeof(TiaLibrarySource));
+            var snapshot = Snapshot(
+                false,
+                malformed);
+
+            var preparation = TiaLibraryImportUiLogic.Prepare(snapshot);
+
+            Assert.False(preparation.CanPreview);
+            Assert.NotEmpty(preparation.WarningText);
         }
 
         [Fact]

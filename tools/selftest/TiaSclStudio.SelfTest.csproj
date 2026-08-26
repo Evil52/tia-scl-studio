@@ -12,6 +12,10 @@
     <FileAlignment>512</FileAlignment>
     <LangVersion>7.3</LangVersion>
     <Deterministic>true</Deterministic>
+    <!-- 5900 lines of assertions. Analysing it as production code counted the
+         harness in every metric and reported its exact float comparisons,
+         which are correct in a test, as defects in the product. -->
+    <SonarQubeTestProject>true</SonarQubeTestProject>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>

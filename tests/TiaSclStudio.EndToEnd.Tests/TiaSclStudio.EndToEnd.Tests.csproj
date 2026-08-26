@@ -48,6 +48,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="DataTypePickerUiTests.cs" />
+    <Compile Include="DbVariableNodeCreationLogicTests.cs" />
+    <Compile Include="BlockLibraryEditorLogicCoverageTests.cs" />
     <Compile Include="HardwareIoSelectionPolicyTests.cs" />
     <Compile Include="GroupEditingLogicTests.cs" />
     <Compile Include="MainWindowSmokeTests.cs" />
@@ -56,10 +58,13 @@
     <Compile Include="TiaProjectInspectorUiTests.cs" />
     <Compile Include="SelfTestExecutableTests.cs" />
     <Compile Include="DenseNodePlacementLogicTests.cs" />
+    <Compile Include="GroupEditingLogicCoverageTests.cs" />
     <Compile Include="LogicNodeEditingLogicTests.cs" />
     <Compile Include="NodeEditingLogicTests.cs" />
+    <Compile Include="NodeCreationLogicCoverageTests.cs" />
     <Compile Include="NoteEditingLogicTests.cs" />
     <Compile Include="SheetAutoLayoutLogicTests.cs" />
+    <Compile Include="SheetAutoLayoutCoverageTests.cs" />
     <Compile Include="SheetEditingLogicTests.cs" />
     <Compile Include="UserJourneyTests.cs" />
     <Compile Include="UdtLibraryEditorLogicTests.cs" />

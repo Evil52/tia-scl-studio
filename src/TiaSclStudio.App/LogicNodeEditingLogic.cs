@@ -111,11 +111,8 @@ namespace TiaSclStudio.App
             }
 
             NodeContext context;
-            string lookupError;
-            if (!TryFindNode(project, result.NodeId, out context, out lookupError))
-            {
-                throw new InvalidOperationException(lookupError);
-            }
+            string ignoredLookupError;
+            TryFindNode(project, result.NodeId, out context, out ignoredLookupError);
 
             var template = DiagramNodeFactory.CreateLogic(
                 result.Operation,

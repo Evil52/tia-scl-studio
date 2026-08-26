@@ -24,6 +24,35 @@ namespace TiaSclStudio.Core.Validation
             DataType = dataType ?? string.Empty;
             ByteOffset = byteOffset;
             BitOffset = bitOffset;
+
+            switch (signalKind)
+            {
+                case PlcSignalKind.DigitalInput:
+                case PlcSignalKind.AnalogInput:
+                    Area = PlcMemoryArea.Input;
+                    break;
+                case PlcSignalKind.DigitalOutput:
+                case PlcSignalKind.AnalogOutput:
+                    Area = PlcMemoryArea.Output;
+                    break;
+                default:
+                    Area = PlcMemoryArea.Marker;
+                    break;
+            }
+
+            // Absolute bit positions, so a bit operand and a word operand can be
+            // compared directly. A Bool occupies exactly one bit; everything
+            // else occupies whole bytes starting at its offset.
+            if (bitOffset.HasValue)
+            {
+                FirstBit = ((long)byteOffset * 8) + bitOffset.Value;
+                LastBit = FirstBit;
+            }
+            else
+            {
+                FirstBit = (long)byteOffset * 8;
+                LastBit = FirstBit + (PlcAddressing.GetWidthInBytes(DataType) * 8) - 1;
+            }
         }
 
         public PlcCpuFamily CpuFamily { get; private set; }
@@ -35,6 +64,30 @@ namespace TiaSclStudio.Core.Validation
         public int ByteOffset { get; private set; }
 
         public int? BitOffset { get; private set; }
+
+        /// <summary>The address space this operand lives in.</summary>
+        public PlcMemoryArea Area { get; private set; }
+
+        /// <summary>First bit of the operand, counted from the start of its area.</summary>
+        public long FirstBit { get; private set; }
+
+        /// <summary>Last bit of the operand, inclusive.</summary>
+        public long LastBit { get; private set; }
+
+        /// <summary>
+        /// True when the two operands address any of the same bits. Overlaying a
+        /// word with its individual bits is idiomatic, so this is a fact to
+        /// report rather than a fault in itself.
+        /// </summary>
+        public bool Overlaps(PlcAddressSpec other)
+        {
+            if (other == null)
+            {
+                throw new ArgumentNullException("other");
+            }
+
+            return Area == other.Area && FirstBit <= other.LastBit && other.FirstBit <= LastBit;
+        }
     }
 
     /// <summary>
@@ -47,7 +100,8 @@ namespace TiaSclStudio.Core.Validation
     {
         private static readonly Regex AddressPattern = new Regex(
             "^%?(IW|QW|MW|ID|QD|MD|I|Q|M)([0-9]+)(?:\\.([0-9]+))?$",
-            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            SclRegex.MatchTimeout);
 
         private static readonly string[] BoolOnly = { "Bool" };
         private static readonly string[] AnalogTypes = { "Int", "Word", "Real" };
@@ -401,6 +455,16 @@ namespace TiaSclStudio.Core.Validation
             }
         }
 
+        /// <summary>
+        /// How many bytes an operand of this data type occupies. Bool is one
+        /// byte here because it is addressed inside a byte; the bit within it is
+        /// carried separately.
+        /// </summary>
+        public static int GetWidthInBytes(string dataType)
+        {
+            return WidthInBytes((dataType ?? string.Empty).Trim());
+        }
+
         private static int WidthInBytes(string dataType)
         {
             if (IsDoubleWordType(dataType))
@@ -408,8 +472,8 @@ namespace TiaSclStudio.Core.Validation
                 return 4;
             }
 
-            if (string.Equals(dataType, "Int", StringComparison.Ordinal) ||
-                string.Equals(dataType, "Word", StringComparison.Ordinal))
+            if (string.Equals(dataType, "Int", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(dataType, "Word", StringComparison.OrdinalIgnoreCase))
             {
                 return 2;
             }
@@ -419,9 +483,9 @@ namespace TiaSclStudio.Core.Validation
 
         private static bool IsDoubleWordType(string dataType)
         {
-            return string.Equals(dataType, "Real", StringComparison.Ordinal) ||
-                   string.Equals(dataType, "DInt", StringComparison.Ordinal) ||
-                   string.Equals(dataType, "DWord", StringComparison.Ordinal);
+            return string.Equals(dataType, "Real", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(dataType, "DInt", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(dataType, "DWord", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void EnsureDefined(PlcCpuFamily cpuFamily, PlcSignalKind signalKind)

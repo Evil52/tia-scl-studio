@@ -1,6 +1,8 @@
 using System;
+using System.CodeDom.Compiler;
 using System.IO;
 using System.Linq;
+using Microsoft.CSharp;
 using TiaSclStudio.Openness.Diagnostics;
 using TiaSclStudio.Openness.Discovery;
 using TiaSclStudio.Openness.Model;
@@ -151,6 +153,81 @@ namespace TiaSclStudio.Openness.Tests
         }
 
         [Fact]
+        public void DiscoversAValidLegacyFallbackAssembly()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var apiDirectory = Path.Combine(directory.Path, "Portal V20", "PublicAPI", "V17");
+                Directory.CreateDirectory(apiDirectory);
+                var assemblyPath = Path.Combine(apiDirectory, "Siemens.Engineering.dll");
+                CompileFixtureAssembly(assemblyPath, "17.0.0.0");
+
+                var result = LocateIn(directory.Path);
+                var installation = Assert.Single(
+                    result.Installations,
+                    item => item.AssemblyPath.StartsWith(
+                        directory.Path,
+                        StringComparison.OrdinalIgnoreCase));
+
+                Assert.Equal(new Version(20, 0), installation.PortalVersion);
+                Assert.Equal(new Version(17, 0, 0, 0), installation.ApiVersion);
+                Assert.Equal(OpennessApiFamily.LegacyV17ToV20, installation.Family);
+                Assert.Equal(OpennessDiscoverySource.ProgramFilesFallback, installation.DiscoverySource);
+                Assert.Equal(string.Empty, installation.TargetFrameworkMoniker);
+            }
+        }
+
+        [Fact]
+        public void DiscoversAValidModularNet48FallbackAssembly()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var apiDirectory = Path.Combine(
+                    directory.Path,
+                    "Portal V21",
+                    "PublicAPI",
+                    "V21",
+                    "net48");
+                Directory.CreateDirectory(apiDirectory);
+                var assemblyPath = Path.Combine(apiDirectory, "Siemens.Engineering.Base.dll");
+                CompileFixtureAssembly(assemblyPath, "21.0.0.0");
+
+                var result = LocateIn(directory.Path);
+                var installation = Assert.Single(
+                    result.Installations,
+                    item => item.AssemblyPath.StartsWith(
+                        directory.Path,
+                        StringComparison.OrdinalIgnoreCase));
+
+                Assert.Equal(new Version(21, 0), installation.PortalVersion);
+                Assert.Equal(new Version(21, 0, 0, 0), installation.ApiVersion);
+                Assert.Equal(OpennessApiFamily.ModularV21Plus, installation.Family);
+                Assert.Equal("net48", installation.TargetFrameworkMoniker);
+            }
+        }
+
+        [Fact]
+        public void AManagedDllWithTheWrongAssemblyNameIsRejected()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var apiDirectory = Path.Combine(directory.Path, "Portal V20", "PublicAPI", "V17");
+                Directory.CreateDirectory(apiDirectory);
+                var original = Path.Combine(apiDirectory, "Wrong.Name.dll");
+                CompileFixtureAssembly(original, "17.0.0.0");
+                File.Copy(original, Path.Combine(apiDirectory, "Siemens.Engineering.dll"));
+
+                var result = LocateIn(directory.Path);
+
+                Assert.Equal(0, InstallationsUnder(result, directory.Path));
+                Assert.True(HasDiagnosticUnder(
+                    result,
+                    OpennessDiagnosticCodes.AssemblyInvalid,
+                    directory.Path));
+            }
+        }
+
+        [Fact]
         public void APortalOlderThanTheSupportedFloorIsSkippedSilently()
         {
             using (var directory = new TemporaryDirectory())
@@ -274,6 +351,28 @@ namespace TiaSclStudio.Openness.Tests
             Assert.Equal("Portal V20, API V17 (LegacyV17ToV20)", installation.ToString());
             Assert.Equal(string.Empty, installation.TargetFrameworkMoniker);
             Assert.Equal(string.Empty, installation.RegistryPath);
+        }
+
+        private static void CompileFixtureAssembly(string outputPath, string version)
+        {
+            using (var provider = new CSharpCodeProvider())
+            {
+                var parameters = new CompilerParameters
+                {
+                    GenerateExecutable = false,
+                    GenerateInMemory = false,
+                    IncludeDebugInformation = false,
+                    OutputAssembly = outputPath
+                };
+                var result = provider.CompileAssemblyFromSource(
+                    parameters,
+                    "using System.Reflection; " +
+                    "[assembly: AssemblyVersion(\"" + version + "\")] " +
+                    "public sealed class FixtureMarker { }");
+                Assert.False(
+                    result.Errors.HasErrors,
+                    string.Join(Environment.NewLine, result.Errors.Cast<CompilerError>()));
+            }
         }
     }
 }

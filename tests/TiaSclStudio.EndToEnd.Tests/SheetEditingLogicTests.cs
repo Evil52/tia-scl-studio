@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using TiaSclStudio.Core.Model;
+using TiaSclStudio.Core.Validation;
 using TiaSclStudio.Diagram.Model;
 using Xunit;
 
@@ -513,6 +515,101 @@ namespace TiaSclStudio.App
             Assert.Throws<ArgumentNullException>(() => SheetEditingLogic.GetNodeHeight(null));
         }
 
+        [Fact]
+        public void RenameRejectsAnInvalidIdentifierWithoutChangingTheSheet()
+        {
+            var project = BuildProject();
+            var sheet = project.Sheets[0];
+
+            Assert.Throws<InvalidOperationException>(() =>
+                SheetEditingLogic.RenameSheet(project, sheet, "bad-name"));
+
+            Assert.Equal("FC_Original", sheet.Name);
+        }
+
+        [Fact]
+        public void UniqueDefaultNameRejectsANullProject()
+        {
+            Assert.Equal("project", Assert.Throws<ArgumentNullException>(() =>
+                SheetEditingLogic.CreateUniqueDefaultName(null)).ParamName);
+        }
+
+        [Fact]
+        public void MultiInstanceSheetNameAlsoValidatesTheGeneratedDbIdentifier()
+        {
+            var project = BuildProject();
+            var block = new BlockDefinition
+            {
+                Name = "FB_Test",
+                Kind = BlockKind.FunctionBlock
+            };
+            project.Plant.Blocks.Add(block);
+            project.Sheets[0].Nodes.Add(new BlockCallNode
+            {
+                BlockDefinitionId = block.Id,
+                UseMultiInstance = true
+            });
+            var maximumLengthName = "F" + new string('x', SclName.MaximumLength - 1);
+            string error;
+
+            Assert.False(SheetEditingLogic.TryValidateName(
+                project,
+                project.Sheets[0],
+                maximumLengthName,
+                out error));
+            Assert.Contains("DB", error, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ReservedSymbolsResolveLegacyCallUnitsByBlockName()
+        {
+            var project = BuildProject();
+            var block = new BlockDefinition
+            {
+                Name = "FB_Legacy",
+                Kind = BlockKind.FunctionBlock
+            };
+            project.Plant.Blocks.Add(null);
+            project.Plant.Blocks.Add(block);
+            var calls = new CallBlockDefinition { Name = "FC_LegacyCalls" };
+            calls.Units.Add(null);
+            calls.Units.Add(new UnitDefinition
+            {
+                Name = "IgnoredMulti",
+                BlockId = block.Id,
+                BlockName = block.Name,
+                UseMultiInstance = true
+            });
+            calls.Units.Add(new UnitDefinition
+            {
+                Name = "LegacyInstanceDb",
+                BlockId = Guid.NewGuid(),
+                BlockName = block.Name
+            });
+            project.Plant.CallBlocks.Add(calls);
+
+            AssertNameIsTaken(project, "LegacyInstanceDb");
+        }
+
+        [Fact]
+        public void EveryNodeKindIncludingDefensiveFallbackHasAWidth()
+        {
+            Assert.Equal(210.0, SheetEditingLogic.GetNodeWidth(new DataBlockVariableNode()));
+            Assert.Equal(220.0, SheetEditingLogic.GetNodeWidth(new UnknownNode()));
+        }
+
+        [Fact]
+        public void UnknownSclNameErrorHasADefensiveTranslation()
+        {
+            var translate = typeof(SheetEditingLogic).GetMethod(
+                "TranslateSclNameError",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.Equal(
+                "недопустимый SCL-идентификатор.",
+                translate.Invoke(null, new object[] { "unexpected validator message" }));
+        }
+
         private static void AssertNameIsTaken(DiagramProject project, string name)
         {
             string error;
@@ -548,6 +645,11 @@ namespace TiaSclStudio.App
                 Height = 800.0
             });
             return project;
+        }
+
+        private sealed class UnknownNode : CallNode
+        {
+            public override CallNodeKind Kind { get { return (CallNodeKind)999; } }
         }
     }
 }

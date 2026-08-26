@@ -8,6 +8,24 @@ All notable changes to this project are recorded here. The format follows
 
 ### Fixed
 
+- **Overlapping PLC tag addresses are now reported.** Two tags could each carry
+  a valid address and still occupy the same bits: `%MW10` contains `%M10.0`, and
+  `%IW0` contains `%I1.3`, so writing one silently changed the other. Nothing
+  downstream could catch it — the SCL is well formed and the PLC compiles it.
+  Reported as `TAG_ADDRESS_OVERLAP`, a warning rather than an error, because
+  overlaying a status word with named bits is standard Siemens practice.
+- **Regular expressions that run over untrusted input now have a timeout.**
+  Patterns matching imported SCL, project files and TIA type names had no match
+  timeout, so input chosen to make one backtrack froze the editor with no way
+  out. All seventeen sites now use a two-second bound.
+- **An unhandled exception no longer takes the editor down silently.** There was
+  no `DispatcherUnhandledException` handler, so anything escaping a UI event
+  handler ended the process through Windows Error Reporting and the open diagram
+  was lost. Failures are now logged to `%LOCALAPPDATA%\TiaSclStudio\crash.log`,
+  reported to the user, and the window stays alive so the work can be saved.
+- `Safe<T>` and `WalkGroupTree<TGroup, TItem>` are constrained to reference
+  types. Their null filters were silently meaningless for a value-type argument.
+
 - **A long call chain no longer takes the process down.** Cycle detection walked
   the graph recursively, so a sheet with a few thousand chained calls exhausted
   the thread stack. On Windows that is not a catchable exception: the process
@@ -92,6 +110,22 @@ All notable changes to this project are recorded here. The format follows
   product assemblies.
 - Test-only MSBuild defaults moved to `Directory.Build.targets`, where legacy
   projects have already declared `IsTestProject` and the conditions take effect.
+- A working local SonarQube analysis: `build\Invoke-SonarQube.ps1` now runs end
+  to end against the server started by `build\sonarqube-compose.yml`.
+
+### Changed
+
+- `sonar-project.properties` removed. The SonarScanner for .NET refuses to run
+  when that file is present — it belongs to the generic CLI scanner — so every
+  analysis setting moved into `Invoke-SonarQube.ps1` as a `/d:` argument.
+- `TiaSclStudio.SelfTest` is marked `SonarQubeTestProject`. Its 5 900 lines of
+  assertions were being measured as production code, inflating every metric and
+  reporting its deliberate exact float comparisons as product defects.
+- Coverage measurement is reproducible. The end-to-end tests that launch
+  `TiaSclStudio.SelfTest.exe` shared one AltCover visit file with their own test
+  host, so whichever process flushed last won and this assembly's reported
+  coverage swung between 21% and 53% across identical runs. Those tests now run
+  in a separate uninstrumented pass.
 
 ### Changed
 

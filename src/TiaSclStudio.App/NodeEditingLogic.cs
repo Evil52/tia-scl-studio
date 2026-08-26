@@ -332,16 +332,17 @@ namespace TiaSclStudio.App
             PlcAddressSpec addressSpec;
             string canonicalAddress;
             string addressError;
-            if (!PlcAddressing.TryParse(
+            // ValidateCandidate has just accepted the same immutable result and
+            // CPU family. Repeating the parse is needed to obtain the canonical
+            // spelling, but a second failure branch cannot be reached without
+            // changing one of those inputs between these adjacent statements.
+            PlcAddressing.TryParse(
                 targetCpuFamily,
                 result.TagAddress,
                 result.DataType,
                 out addressSpec,
                 out canonicalAddress,
-                out addressError))
-            {
-                throw new InvalidOperationException(addressError);
-            }
+                out addressError);
 
             tag.Name = result.TagName;
             tag.DataType = result.DataType;

@@ -1,3 +1,5 @@
+using System;
+using System.Reflection;
 using TiaSclStudio.Core.Model;
 using TiaSclStudio.Core.Validation;
 using Xunit;
@@ -181,6 +183,114 @@ namespace TiaSclStudio.Core.Tests
             var result = new ProjectValidator().Validate(project);
 
             Assert.Contains(result.Errors, issue => issue.Code == "TAG_ADDRESS_INVALID");
+        }
+
+        [Fact]
+        public void AddressRangesAndOverlapGuardsCoverInvalidInputs()
+        {
+            var input = new PlcAddressSpec(
+                PlcCpuFamily.S71200,
+                PlcSignalKind.DigitalInput,
+                "Bool",
+                0,
+                0);
+            var sameBit = new PlcAddressSpec(
+                PlcCpuFamily.S71200,
+                PlcSignalKind.DigitalInput,
+                "Bool",
+                0,
+                0);
+            var output = new PlcAddressSpec(
+                PlcCpuFamily.S71200,
+                PlcSignalKind.DigitalOutput,
+                "Bool",
+                0,
+                0);
+
+            Assert.True(input.Overlaps(sameBit));
+            Assert.False(input.Overlaps(output));
+            Assert.Equal("other", Assert.Throws<ArgumentNullException>(() => input.Overlaps(null)).ParamName);
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PlcAddressing.GetAllowedDataTypes((PlcSignalKind)999));
+            Assert.Throws<ArgumentException>(() =>
+                PlcAddressing.GetMaximumByteOffset(
+                    PlcCpuFamily.Unknown,
+                    PlcSignalKind.Memory,
+                    "Bool"));
+            Assert.Throws<ArgumentException>(() =>
+                PlcAddressing.GetMaximumByteOffset(
+                    PlcCpuFamily.S71200,
+                    PlcSignalKind.Memory,
+                    "Date_And_Time"));
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PlcAddressing.GetMaximumByteOffset(
+                    (PlcCpuFamily)999,
+                    PlcSignalKind.Memory,
+                    "Bool"));
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PlcAddressing.GetMaximumByteOffset(
+                    PlcCpuFamily.S71200,
+                    (PlcSignalKind)999,
+                    "Bool"));
+        }
+
+        [Theory]
+        [InlineData(999, (int)PlcSignalKind.Memory, "Bool", 0, null)]
+        [InlineData((int)PlcCpuFamily.S71200, 999, "Bool", 0, null)]
+        [InlineData((int)PlcCpuFamily.S71200, (int)PlcSignalKind.Memory, "Date_And_Time", 0, null)]
+        [InlineData((int)PlcCpuFamily.S71200, (int)PlcSignalKind.Memory, "Bool", -1, 0)]
+        public void BuilderRejectsEveryInvalidCategory(
+            int cpu,
+            int signal,
+            string dataType,
+            int byteOffset,
+            int? bitOffset)
+        {
+            string address;
+            string error;
+
+            Assert.False(PlcAddressing.TryBuild(
+                (PlcCpuFamily)cpu,
+                (PlcSignalKind)signal,
+                dataType,
+                byteOffset,
+                bitOffset,
+                out address,
+                out error));
+            Assert.NotEmpty(error);
+        }
+
+        [Theory]
+        [InlineData("%I999999999999999999999999999999.0", "Bool")]
+        [InlineData("%I0.999999999999999999999999999999", "Bool")]
+        public void ParserRejectsNumericOverflow(string rawAddress, string dataType)
+        {
+            PlcAddressSpec spec;
+            string address;
+            string error;
+
+            Assert.False(PlcAddressing.TryParse(
+                PlcCpuFamily.S71200,
+                rawAddress,
+                dataType,
+                out spec,
+                out address,
+                out error));
+            Assert.Null(spec);
+            Assert.NotEmpty(error);
+        }
+
+        [Fact]
+        public void PrefixDefensivelyRejectsAnUnknownSignalKind()
+        {
+            var prefix = typeof(PlcAddressing).GetMethod(
+                "Prefix",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            var exception = Assert.Throws<TargetInvocationException>(() =>
+                prefix.Invoke(null, new object[] { (PlcSignalKind)999, "Bool" }));
+
+            Assert.IsType<ArgumentOutOfRangeException>(exception.InnerException);
         }
     }
 }

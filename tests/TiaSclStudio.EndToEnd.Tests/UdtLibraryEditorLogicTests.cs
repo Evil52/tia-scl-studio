@@ -126,6 +126,97 @@ namespace TiaSclStudio.App
                 message => message.IndexOf(candidateName, StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
+        [Fact]
+        public void PublicBoundariesRejectNullAndMaterializeAMissingPlant()
+        {
+            Assert.Equal("project", Assert.Throws<ArgumentNullException>(() =>
+                UdtLibraryEditorLogic.ValidateCandidates(null, new UdtDefinition[0])).ParamName);
+            Assert.Equal("project", Assert.Throws<ArgumentNullException>(() =>
+                UdtLibraryEditorLogic.Apply(null, new UdtDefinition[0])).ParamName);
+            Assert.Equal("candidates", Assert.Throws<ArgumentNullException>(() =>
+                UdtLibraryEditorLogic.Apply(new DiagramProject(), null)).ParamName);
+            Assert.Equal("project", Assert.Throws<ArgumentNullException>(() =>
+                UdtLibraryEditorLogic.FindUsages(null, null, Guid.Empty, null)).ParamName);
+
+            var project = new DiagramProject { Plant = null };
+            UdtLibraryEditorLogic.Apply(project, new UdtDefinition[0]);
+
+            Assert.NotNull(project.Plant);
+            Assert.Empty(project.Plant.DataTypes);
+        }
+
+        [Fact]
+        public void RenameAlsoRewritesTagDbVariableNodesAndGlobalDbVariables()
+        {
+            var project = BuildReferencedProject();
+            var target = project.Plant.DataTypes.Single(item => item.Name == "OldPayload");
+            project.Sheets[0].Nodes.Add(new TagNode { DataType = "OldPayload" });
+            project.Sheets[0].Nodes.Add(new DataBlockVariableNode { DataType = "OldPayload" });
+            project.Plant.DataBlockVariables.Add(null);
+            project.Plant.DataBlockVariables.Add(new DataBlockVariableDefinition
+            {
+                DataBlockName = "DB_Global",
+                VariableName = "Payload",
+                DataType = "OldPayload"
+            });
+            var candidates = project.Plant.DataTypes
+                .Select(UdtEditorWindow.CloneDataType)
+                .ToList();
+            candidates.Single(item => item.Id == target.Id).Name = "NewPayload";
+
+            UdtLibraryEditorLogic.Apply(project, candidates);
+
+            Assert.Equal(
+                "\"NewPayload\"",
+                project.Sheets[0].Nodes.OfType<TagNode>().Single().DataType);
+            Assert.Equal(
+                "\"NewPayload\"",
+                project.Sheets[0].Nodes.OfType<DataBlockVariableNode>().Single().DataType);
+            Assert.Equal(
+                "\"NewPayload\"",
+                project.Plant.DataBlockVariables.Single(item => item != null).DataType);
+        }
+
+        [Fact]
+        public void RewriteReferencesToleratesSparseCollectionsAndRewritesMembers()
+        {
+            var sparse = new UdtDefinition { Name = "Sparse", Members = null };
+            var dependent = ModelBuilder.Udt(
+                "Dependent",
+                new UdtMember("Payload", "OldPayload"));
+            dependent.Members.Add(null);
+
+            UdtLibraryEditorLogic.RewriteReferences(
+                new UdtDefinition[] { null, sparse, dependent },
+                "OldPayload",
+                "NewPayload");
+            UdtLibraryEditorLogic.RewriteReferences(null, "OldPayload", "NewPayload");
+
+            Assert.Equal("\"NewPayload\"", dependent.Members[0].DataType);
+        }
+
+        [Fact]
+        public void UsageCensusIncludesGlobalDbVariablesAndIgnoresInvalidNames()
+        {
+            var project = BuildReferencedProject();
+            var target = project.Plant.DataTypes.Single(item => item.Name == "OldPayload");
+            project.Plant.DataBlockVariables.Add(null);
+            project.Plant.DataBlockVariables.Add(new DataBlockVariableDefinition
+            {
+                DataBlockName = "DB_Global",
+                VariableName = "Payload",
+                DataType = "OldPayload"
+            });
+
+            var usages = UdtLibraryEditorLogic.FindUsages(
+                project,
+                project.Plant.DataTypes,
+                target.Id,
+                new[] { null, "bad-name", target.Name });
+
+            Assert.Contains(usages, item => item.Contains("DB_Global.Payload"));
+        }
+
         private static DiagramProject BuildReferencedProject()
         {
             var project = ModelBuilder.Project("UdtProject", "FC_Test");

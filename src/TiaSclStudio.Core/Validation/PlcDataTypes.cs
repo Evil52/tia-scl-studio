@@ -61,15 +61,18 @@ namespace TiaSclStudio.Core.Validation
 
         private static readonly Regex SizedStringPattern = new Regex(
             "^(String|WString)\\s*\\[\\s*([0-9]+)\\s*\\]$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            SclRegex.MatchTimeout);
 
         private static readonly Regex ArrayPattern = new Regex(
             "^Array\\s*\\[\\s*(.+?)\\s*\\]\\s*of\\s+(.+)$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            SclRegex.MatchTimeout);
 
         private static readonly Regex ArrayBoundPattern = new Regex(
             "^([+-]?[0-9]+)\\s*\\.\\.\\s*([+-]?[0-9]+)$",
-            RegexOptions.CultureInvariant);
+            RegexOptions.CultureInvariant,
+            SclRegex.MatchTimeout);
 
         private static readonly IReadOnlyList<string> ReadOnlyBuiltIns =
             new ReadOnlyCollection<string>(BuiltInTypeValues);

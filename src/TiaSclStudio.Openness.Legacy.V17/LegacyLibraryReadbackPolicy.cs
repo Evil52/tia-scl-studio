@@ -136,6 +136,8 @@ namespace TiaSclStudio.Openness.Legacy.V17
             Func<TGroup, IEnumerable<TItem>> getItems,
             Func<TGroup, IEnumerable<TGroup>> getChildren,
             Func<TGroup, string> getName)
+            where TGroup : class
+            where TItem : class
         {
             if (root == null)
             {
@@ -166,6 +168,8 @@ namespace TiaSclStudio.Openness.Legacy.V17
             Func<TGroup, IEnumerable<TItem>> getItems,
             Func<TGroup, IEnumerable<TGroup>> getChildren,
             Func<TGroup, string> getName)
+            where TGroup : class
+            where TItem : class
         {
             var items = getItems(group);
             if (items != null)

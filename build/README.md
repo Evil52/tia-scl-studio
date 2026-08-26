@@ -59,9 +59,19 @@ Two things about that arrangement are deliberate:
   truncates. Everything that hands a directory to such a tool copies it to a
   `#`-free temporary path first. If you hit odd tool behaviour elsewhere, that
   character is the first thing to suspect.
+* **Tests that launch the product run in a separate uninstrumented pass.**
+  `SelfTestExecutableTests` starts `TiaSclStudio.SelfTest.exe`, which loads the
+  same instrumented assemblies and writes to the same visit file as its own test
+  host. Whichever process flushed last won, and `TiaSclStudio.App` coverage
+  swung between 21% and 53% across identical runs. Those tests still run, just
+  afterwards and without instrumentation — all they have to prove is that the
+  shipped executable works. Coverage is now byte-identical between runs.
 
-The script prints the per-assembly union at the end, which is the number that
-matches what SonarQube will show.
+The script prints both the raw per-assembly union and the coverage-gated Sonar
+production scope. The latter must be **100%** and is enforced locally and in CI.
+It contains every model-only production class. WPF event wiring and the narrow
+TIA runtime boundaries are still statically analysed, but their coverage needs
+the Windows/TIA VM and is therefore excluded from this offline line gate.
 
 ## SonarQube
 
@@ -99,18 +109,31 @@ first use, then does `begin` → full rebuild → tests with coverage → `end`.
 rebuild is not optional: the analyser only sees files that are compiled inside
 the wrapped build, so an incremental build produces an empty analysis.
 
-Project-level settings live in [`sonar-project.properties`](../sonar-project.properties).
+After the server finishes processing, the script reads the published
+`line_coverage` metric back through the Sonar API and fails unless it is 100%.
+This makes the target independent of a server whose default quality gate may be
+less strict. Use `-MinimumLineCoverage` only for an intentional policy change.
+
+There is deliberately **no `sonar-project.properties`** in this repository. That
+file belongs to the generic CLI scanner; the SonarScanner for .NET discovers
+sources through MSBuild instead and aborts with
+*"sonar-project.properties files are not understood by the SonarScanner for
+.NET"* if it finds one. Every analysis setting is a `/d:` argument in
+`Invoke-SonarQube.ps1`.
 
 ### Suggested quality gate
 
 The defaults measure the whole codebase. For a project with an existing body of
 code, gating on *new* code is what actually changes behaviour:
 
-* coverage on new code ≥ 80%
+* line coverage on new code = **100%**
 * duplicated lines on new code ≤ 3%
 * zero new blocker or critical issues
 * maintainability, reliability and security rating on new code = A
 
-`TiaSclStudio.Openness.Legacy.V17` cannot reach a high coverage number without a
-real TIA Portal installation to talk to; exclude it from the coverage gate
-rather than pretending otherwise.
+`Invoke-SonarQube.ps1` waits for the server-side quality gate, so a failed gate
+fails the CI job. The coverage exclusions in that script exactly mirror the
+local 100% production-scope line gate. `TiaSclStudio.Openness.Legacy.V17`, the
+installation locator, WPF event wiring and the gateway worker need a real TIA
+Portal/desktop session; they are excluded from coverage only, not from static
+analysis. Their integration checks run on the dedicated TIA runner.

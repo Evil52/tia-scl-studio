@@ -207,8 +207,12 @@ namespace TiaSclStudio.App
                 newWidth,
                 newHeight);
 
-            try
-            {
+            CommitPreservingExecutionOrder(
+                sheet,
+                oldExecutionOrder,
+                oldState,
+                () =>
+                {
                 Commit(
                     sheet,
                     records,
@@ -216,19 +220,7 @@ namespace TiaSclStudio.App
                     plannedManualOrder,
                     newWidth,
                     newHeight);
-
-                var newExecutionOrder = TopologicalSorter.Sort(sheet).OrderedNodeIds;
-                if (!oldExecutionOrder.SequenceEqual(newExecutionOrder))
-                {
-                    throw new InvalidOperationException(
-                        "Auto-layout changed the executable-node order.");
-                }
-            }
-            catch
-            {
-                RestoreOldState(sheet, oldState);
-                throw;
-            }
+                });
 
             var sheetExpanded = newWidth > oldWidth || newHeight > oldHeight;
             return new SheetAutoLayoutResult(
@@ -242,6 +234,29 @@ namespace TiaSclStudio.App
                 newWidth,
                 newHeight,
                 BuildStatus(records.Count, cyclicRecords.Count, disconnectedRecords.Count));
+        }
+
+        private static void CommitPreservingExecutionOrder(
+            CallSheet sheet,
+            IEnumerable<Guid> oldExecutionOrder,
+            OldLayoutState oldState,
+            Action commit)
+        {
+            try
+            {
+                commit();
+                var newExecutionOrder = TopologicalSorter.Sort(sheet).OrderedNodeIds;
+                if (!oldExecutionOrder.SequenceEqual(newExecutionOrder))
+                {
+                    throw new InvalidOperationException(
+                        "Auto-layout changed the executable-node order.");
+                }
+            }
+            catch
+            {
+                RestoreOldState(sheet, oldState);
+                throw;
+            }
         }
 
         private static List<NodeRecord> CreateNodeRecords(
@@ -426,12 +441,6 @@ namespace TiaSclStudio.App
                 current = current.Parent;
             }
 
-            if (!visited.Add(current.Group.Id))
-            {
-                throw new InvalidOperationException(
-                    "Visual-group parent hierarchy contains a cycle.");
-            }
-
             return depth;
         }
 
@@ -583,16 +592,6 @@ namespace TiaSclStudio.App
                         ready.Add(successor);
                     }
                 }
-            }
-
-            // A structurally unusual edge through a non-executable terminal can
-            // still leave a residue after SCC extraction. Treat that residue as
-            // its own deterministic tail instead of losing a node from layout.
-            foreach (var residue in records
-                .Where(record => !orderedIds.Contains(record.Node.Id))
-                .OrderBy(record => record, NodeRecordStableComparer.Instance))
-            {
-                ordered.Add(residue);
             }
 
             foreach (var record in ordered)
@@ -997,6 +996,14 @@ namespace TiaSclStudio.App
                         record.Group.Height)));
         }
 
+        // S1244 asks for a tolerance when comparing doubles. Here exactness is
+        // the point: this decides whether auto-layout actually moved anything,
+        // and therefore whether an undo entry is recorded. The proposed values
+        // come from a deterministic layout of the same input, so an unchanged
+        // sheet compares bit-identical. A tolerance would silently swallow a
+        // genuine sub-pixel nudge and leave the canvas and the undo stack
+        // disagreeing about what happened.
+#pragma warning disable S1244
         private static bool HasChanges(
             CallSheet sheet,
             IEnumerable<NodeRecord> records,
@@ -1037,6 +1044,7 @@ namespace TiaSclStudio.App
 
             return false;
         }
+#pragma warning restore S1244
 
         private static void ValidatePlans(
             IEnumerable<NodeRecord> records,

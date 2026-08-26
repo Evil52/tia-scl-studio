@@ -75,6 +75,20 @@ namespace TiaSclStudio.Diagram.Tests
         }
 
         [Fact]
+        public void ANodeWithManualOrderSortsBeforeAnOtherwiseEarlierAutomaticNode()
+        {
+            var block = ModelBuilder.FunctionBlock("FB_A");
+            var sheet = ModelBuilder.Sheet();
+            var automatic = ModelBuilder.PlaceBlock(sheet, block, "Automatic", 0.0, 0.0);
+            var manual = ModelBuilder.PlaceBlock(sheet, block, "Manual", 100.0, 0.0);
+            manual.ManualOrder = 10;
+
+            var order = TopologicalSorter.Sort(sheet).OrderedNodeIds;
+
+            Assert.Equal(new[] { manual.Id, automatic.Id }, order.ToArray());
+        }
+
+        [Fact]
         public void GeometryBreaksTiesLeftToRightThenTopToBottom()
         {
             var block = ModelBuilder.FunctionBlock("FB_A");

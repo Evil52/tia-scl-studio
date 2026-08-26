@@ -24,6 +24,9 @@
 .PARAMETER SkipTests
     Analyse without running the tests. The result carries no coverage.
 
+.PARAMETER MinimumLineCoverage
+    Minimum published Sonar line_coverage value. The default is 100.
+
 .EXAMPLE
     $env:SONAR_TOKEN = 'squ_...'
     .\build\Invoke-SonarQube.ps1
@@ -38,6 +41,8 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
     [string] $ScannerVersion = '11.2.1.137242',
+    [ValidateRange(0.0, 100.0)]
+    [double] $MinimumLineCoverage = 100.0,
     [switch] $SkipTests
 )
 
@@ -124,6 +129,11 @@ $resultsDirectory = Join-Path $root 'artifacts\test-results'
 $coveragePattern = Join-Path $resultsDirectory 'opencover-*.xml'
 $trxPattern = Join-Path $resultsDirectory '*.trx'
 
+# Every analysis setting is passed here rather than living in a
+# sonar-project.properties file. The SonarScanner for .NET discovers sources
+# through MSBuild and refuses to run at all when such a file is present, because
+# it belongs to the generic CLI scanner and the two disagree about what is being
+# analysed.
 Write-Step 'sonarscanner begin'
 $beginArguments = @(
     'begin',
@@ -132,8 +142,20 @@ $beginArguments = @(
     "/v:$projectVersion",
     "/d:sonar.host.url=$HostUrl",
     "/d:sonar.token=$Token",
-    "/d:sonar.sourceEncoding=UTF-8",
-    "/d:sonar.scanner.scanAll=false"
+    '/d:sonar.sourceEncoding=UTF-8',
+    '/d:sonar.scanner.scanAll=false',
+
+    # Build output, restored packages and generated designer partials are not
+    # reviewable code and would otherwise dominate every measurement.
+    '/d:sonar.exclusions=artifacts/**,packages/**,**/bin/**,**/obj/**,**/*.g.cs,**/*.g.i.cs,**/AssemblyInfo.cs',
+
+    # Static analysis still sees these files. Coverage excludes only test
+    # harnesses, WPF event wiring and boundaries that require an installed TIA
+    # Portal/Siemens runtime. All model-only production logic remains gated.
+    '/d:sonar.coverage.exclusions=tools/selftest/**,tests/**,**/*.xaml,**/*.xaml.cs,src/TiaSclStudio.App/MainWindow*.cs,src/TiaSclStudio.App/TiaGatewayWorker.cs,src/TiaSclStudio.Openness/Discovery/OpennessInstallationLocator.cs,src/TiaSclStudio.Openness.Legacy.V17/**',
+    '/d:sonar.cpd.exclusions=tools/selftest/**,tests/**',
+    '/d:sonar.qualitygate.wait=true',
+    '/d:sonar.qualitygate.timeout=600'
 )
 
 if (-not $SkipTests)
@@ -174,3 +196,39 @@ finally
 
 Write-Host ''
 Write-Host "Analysis published: $HostUrl/dashboard?id=$projectKey" -ForegroundColor Green
+
+if (-not $SkipTests)
+{
+    Write-Step "Verifying published Sonar line coverage >= $MinimumLineCoverage%"
+    $encodedProjectKey = [Uri]::EscapeDataString($projectKey)
+    $measureUri = "$HostUrl/api/measures/component?component=$encodedProjectKey&metricKeys=line_coverage"
+    $basicToken = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Token + ':'))
+    $measureResponse = Invoke-RestMethod `
+        -Uri $measureUri `
+        -Headers @{ Authorization = 'Basic ' + $basicToken } `
+        -TimeoutSec 30
+    $lineCoverageMeasure = @($measureResponse.component.measures) |
+        Where-Object { $_.metric -eq 'line_coverage' } |
+        Select-Object -First 1
+    if (-not $lineCoverageMeasure)
+    {
+        throw "SonarQube returned no line_coverage measure for '$projectKey'."
+    }
+
+    $publishedLineCoverage = 0.0
+    if (-not [double]::TryParse(
+        [string]$lineCoverageMeasure.value,
+        [Globalization.NumberStyles]::Float,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [ref]$publishedLineCoverage))
+    {
+        throw "SonarQube returned an invalid line_coverage value '$($lineCoverageMeasure.value)'."
+    }
+
+    if ($publishedLineCoverage + 0.0000001 -lt $MinimumLineCoverage)
+    {
+        throw "Published Sonar line coverage is $publishedLineCoverage%; required $MinimumLineCoverage%."
+    }
+
+    Write-Host "Published Sonar line coverage: $publishedLineCoverage%" -ForegroundColor Green
+}

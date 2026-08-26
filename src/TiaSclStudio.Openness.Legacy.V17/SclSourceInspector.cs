@@ -40,35 +40,40 @@ namespace TiaSclStudio.Openness.Legacy.V17
             RegexOptions.Compiled |
             RegexOptions.CultureInvariant |
             RegexOptions.IgnoreCase |
-            RegexOptions.Multiline);
+            RegexOptions.Multiline,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly Regex VersionPattern = new Regex(
             @"^[ \t]*VERSION[ \t]*:",
             RegexOptions.Compiled |
             RegexOptions.CultureInvariant |
             RegexOptions.IgnoreCase |
-            RegexOptions.Multiline);
+            RegexOptions.Multiline,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly Regex HeaderTerminatorPattern = new Regex(
             @"^[ \t]*(?:VAR(?:_[A-Z_]+)?|BEGIN|NON_RETAIN|RETAIN)\b",
             RegexOptions.Compiled |
             RegexOptions.CultureInvariant |
             RegexOptions.IgnoreCase |
-            RegexOptions.Multiline);
+            RegexOptions.Multiline,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly Regex FamilyPattern = new Regex(
             @"^[ \t]*FAMILY[ \t]*:[ \t]*(?<value>'(?:''|[^'\r\n])*'|[A-Za-z_][A-Za-z0-9_]*)",
             RegexOptions.Compiled |
             RegexOptions.CultureInvariant |
             RegexOptions.IgnoreCase |
-            RegexOptions.Multiline);
+            RegexOptions.Multiline,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly Regex BeginPattern = new Regex(
             @"^[ \t]*BEGIN\b",
             RegexOptions.Compiled |
             RegexOptions.CultureInvariant |
             RegexOptions.IgnoreCase |
-            RegexOptions.Multiline);
+            RegexOptions.Multiline,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly string[] CompoundOperators =
         {
@@ -487,7 +492,8 @@ namespace TiaSclStudio.Openness.Legacy.V17
                 @"^[ \t]*" + keyword + @"\b[^\r\n]*(?:\r\n|\r|\n)?",
                 RegexOptions.CultureInvariant |
                 RegexOptions.IgnoreCase |
-                RegexOptions.Multiline);
+                RegexOptions.Multiline,
+                SclRegexTimeouts.MatchTimeout);
         }
 
         private static IList<SclToken> Tokenize(string source)

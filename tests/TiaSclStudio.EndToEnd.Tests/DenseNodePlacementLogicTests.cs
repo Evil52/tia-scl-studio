@@ -283,6 +283,29 @@ namespace TiaSclStudio.App
                 28.0));
         }
 
+        [Fact]
+        public void ACompletelyOccupiedMaximumCanvasReportsExhaustion()
+        {
+            var occupied = new[]
+            {
+                new Rect(
+                    0.0,
+                    0.0,
+                    DenseNodePlacementLogic.MaximumSheetExtent,
+                    DenseNodePlacementLogic.MaximumSheetExtent)
+            };
+
+            Assert.Throws<InvalidOperationException>(() =>
+                DenseNodePlacementLogic.FindNearestFreePlacement(
+                    DenseNodePlacementLogic.NodeMargin,
+                    DenseNodePlacementLogic.NodeMargin,
+                    NodeWidth,
+                    NodeHeight,
+                    occupied,
+                    DenseNodePlacementLogic.MaximumSheetExtent,
+                    DenseNodePlacementLogic.MaximumSheetExtent));
+        }
+
         private static DenseNodePlacementResult Place(
             double x,
             double y,

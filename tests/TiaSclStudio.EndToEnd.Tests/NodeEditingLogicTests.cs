@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using TiaSclStudio.Core.Model;
+using TiaSclStudio.Core.Validation;
 using TiaSclStudio.Diagram.Model;
 using Xunit;
 
@@ -544,6 +546,360 @@ namespace TiaSclStudio.App
                     PlcCpuFamily.Unknown));
 
             Assert.Contains(errors, error => error.Contains("S7-1200"));
+        }
+
+        [Fact]
+        public void AnUnsupportedButInternallyConsistentNodeKindIsReported()
+        {
+            var fixture = new Fixture();
+            var logic = DiagramNodeFactory.CreateLogic(LogicOperation.And, "Bool", 0.0, 0.0);
+            fixture.Sheet.Nodes.Add(logic);
+
+            var errors = NodeEditingLogic.ValidateCandidate(
+                fixture.Project,
+                CreateRawResult(logic.Id, CallNodeKind.Logic));
+
+            Assert.Single(errors);
+        }
+
+        [Fact]
+        public void ABlockReferenceChangedAfterOpeningTheEditorIsReported()
+        {
+            var fixture = new Fixture();
+            var candidate = NodeEditingLogic.CreateBlockCallResult(fixture.BlockCall, "Motor1", false);
+            fixture.BlockCall.BlockDefinitionId = Guid.NewGuid();
+
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(fixture.Project, candidate));
+        }
+
+        [Fact]
+        public void MissingAndDuplicateBlockDefinitionsAreReported()
+        {
+            var missing = new Fixture();
+            var missingCandidate = NodeEditingLogic.CreateBlockCallResult(
+                missing.BlockCall,
+                "Motor1",
+                false);
+            missing.Project.Plant.Blocks.Remove(missing.FunctionBlock);
+
+            var duplicate = new Fixture();
+            duplicate.Project.Plant.Blocks.Add(new BlockDefinition
+            {
+                Id = duplicate.FunctionBlock.Id,
+                Name = "FB_Duplicate",
+                Kind = BlockKind.FunctionBlock
+            });
+
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(missing.Project, missingCandidate));
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                duplicate.Project,
+                NodeEditingLogic.CreateBlockCallResult(duplicate.BlockCall, "Motor1", false)));
+        }
+
+        [Fact]
+        public void MultiInstanceSheetDbMustBeAValidUniqueGlobalSymbol()
+        {
+            var invalid = new Fixture();
+            invalid.Sheet.Name = new string('A', SclName.MaximumLength);
+
+            var collision = new Fixture();
+            collision.Project.Plant.Tags.Add(new TagDefinition
+            {
+                Name = "FC_Units_DB",
+                DataType = "Bool",
+                Address = "%M1.0"
+            });
+
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                invalid.Project,
+                NodeEditingLogic.CreateBlockCallResult(invalid.BlockCall, "Motor1", true)));
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                collision.Project,
+                NodeEditingLogic.CreateBlockCallResult(collision.BlockCall, "Motor1", true)));
+        }
+
+        [Fact]
+        public void ANodeOnlyPretendingToBeAConstantIsRejected()
+        {
+            var fixture = new Fixture();
+            var fake = new PretendConstantNode { Id = fixture.Constant.Id };
+            fixture.Sheet.Nodes[fixture.Sheet.Nodes.IndexOf(fixture.Constant)] = fake;
+
+            var errors = NodeEditingLogic.ValidateCandidate(
+                fixture.Project,
+                CreateRawResult(fake.Id, CallNodeKind.Constant, literal: "TRUE", dataType: "Bool"));
+
+            Assert.Single(errors);
+        }
+
+        [Fact]
+        public void ATagReferenceChangedAfterOpeningTheEditorIsReported()
+        {
+            var fixture = new Fixture();
+            var candidate = NodeEditingLogic.CreateTagResult(fixture.TagNode, fixture.Tag);
+            fixture.TagNode.TagDefinitionId = Guid.NewGuid();
+
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(fixture.Project, candidate));
+        }
+
+        [Fact]
+        public void MissingAndDuplicateTagDefinitionsAreReported()
+        {
+            var missing = new Fixture();
+            var missingCandidate = NodeEditingLogic.CreateTagResult(missing.TagNode, missing.Tag);
+            missing.Project.Plant.Tags.Remove(missing.Tag);
+
+            var duplicate = new Fixture();
+            duplicate.Project.Plant.Tags.Add(new TagDefinition
+            {
+                Id = duplicate.Tag.Id,
+                Name = "StartDuplicate",
+                DataType = "Bool",
+                Address = "%I0.1"
+            });
+
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(missing.Project, missingCandidate));
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                duplicate.Project,
+                NodeEditingLogic.CreateTagResult(duplicate.TagNode, duplicate.Tag)));
+        }
+
+        [Fact]
+        public void CpuMigrationAlsoValidatesEveryExistingTag()
+        {
+            var fixture = new Fixture();
+            fixture.Project.Plant.Tags.Add(new TagDefinition
+            {
+                Name = "BrokenExisting",
+                DataType = "Bool",
+                Address = "not-an-address"
+            });
+
+            var errors = NodeEditingLogic.ValidateCandidate(
+                fixture.Project,
+                NodeEditingLogic.CreateTagResult(
+                    fixture.TagNode,
+                    fixture.Tag,
+                    PlcCpuFamily.S71500));
+
+            Assert.Contains(errors, error => error.Contains("BrokenExisting"));
+        }
+
+        [Fact]
+        public void EmptyDuplicateAndProjectWideDuplicatePinIdsAreRejected()
+        {
+            var empty = new Fixture();
+            empty.Constant.Pins[0].Id = Guid.Empty;
+
+            var linkedDuplicate = new Fixture();
+            var secondLinked = DiagramNodeFactory.CreateTag(
+                linkedDuplicate.Tag,
+                TerminalDirection.Source,
+                0.0,
+                0.0);
+            secondLinked.Pins[0].Id = linkedDuplicate.TagNode.Pins[0].Id;
+            linkedDuplicate.Sheet.Nodes.Add(secondLinked);
+
+            var projectDuplicate = new Fixture();
+            var unrelated = DiagramNodeFactory.CreateTag(
+                new TagDefinition { Name = "Other", DataType = "Bool", Address = "%I0.1" },
+                TerminalDirection.Source,
+                0.0,
+                0.0);
+            unrelated.Pins[0].Id = projectDuplicate.Constant.Pins[0].Id;
+            projectDuplicate.Sheet.Nodes.Add(unrelated);
+
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                empty.Project,
+                NodeEditingLogic.CreateConstantResult(empty.Constant, "TRUE", "Bool")));
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                linkedDuplicate.Project,
+                NodeEditingLogic.CreateTagResult(linkedDuplicate.TagNode, linkedDuplicate.Tag)));
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                projectDuplicate.Project,
+                NodeEditingLogic.CreateConstantResult(projectDuplicate.Constant, "TRUE", "Bool")));
+        }
+
+        [Fact]
+        public void AWireWithAMissingOppositeEndBlocksRetyping()
+        {
+            var fixture = new Fixture();
+            fixture.Sheet.Wires.Add(new Wire
+            {
+                SourceNodeId = fixture.Constant.Id,
+                SourcePinId = fixture.Constant.Pins[0].Id,
+                TargetNodeId = Guid.NewGuid(),
+                TargetPinId = Guid.NewGuid()
+            });
+
+            var errors = NodeEditingLogic.ValidateCandidate(
+                fixture.Project,
+                NodeEditingLogic.CreateConstantResult(fixture.Constant, "TRUE", "Bool"));
+
+            Assert.NotEmpty(errors);
+        }
+
+        [Theory]
+        [InlineData("udt")]
+        [InlineData("call-block")]
+        [InlineData("call-block-db")]
+        [InlineData("unit-db")]
+        [InlineData("sheet-db")]
+        public void TagRenameChecksEveryGlobalSymbolCategory(string category)
+        {
+            var fixture = new Fixture();
+            string collisionName;
+
+            switch (category)
+            {
+                case "udt":
+                    collisionName = "Valve_Data";
+                    fixture.Project.Plant.DataTypes.Add(new UdtDefinition { Name = collisionName });
+                    break;
+                case "call-block":
+                    collisionName = "FC_Coordinator";
+                    fixture.Project.Plant.CallBlocks.Add(new CallBlockDefinition { Name = collisionName });
+                    break;
+                case "call-block-db":
+                    collisionName = "FB_Coordinator_DB";
+                    fixture.Project.Plant.CallBlocks.Add(new CallBlockDefinition
+                    {
+                        Name = "FB_Coordinator",
+                        Kind = BlockKind.FunctionBlock,
+                        InstanceDbName = string.Empty
+                    });
+                    break;
+                case "unit-db":
+                    collisionName = "MotorFromCallBlock";
+                    var callBlock = new CallBlockDefinition { Name = "FC_Coordinator" };
+                    callBlock.Units.Add(new UnitDefinition
+                    {
+                        Name = collisionName,
+                        BlockId = Guid.NewGuid(),
+                        BlockName = fixture.FunctionBlock.Name,
+                        UseMultiInstance = false
+                    });
+                    fixture.Project.Plant.CallBlocks.Add(callBlock);
+                    break;
+                default:
+                    collisionName = "FC_Other_DB";
+                    var otherSheet = new CallSheet { Name = "FC_Other" };
+                    var call = DiagramNodeFactory.CreateBlockCall(
+                        fixture.FunctionBlock,
+                        "OtherMotor",
+                        0.0,
+                        0.0);
+                    call.UseMultiInstance = true;
+                    otherSheet.Nodes.Add(call);
+                    fixture.Project.Sheets.Add(otherSheet);
+                    break;
+            }
+
+            var candidateTag = new TagDefinition
+            {
+                Id = fixture.Tag.Id,
+                Name = collisionName,
+                DataType = "Bool",
+                Address = "%I0.0"
+            };
+
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                fixture.Project,
+                NodeEditingLogic.CreateTagResult(fixture.TagNode, candidateTag)));
+        }
+
+        [Theory]
+        [InlineData(" Motor")]
+        [InlineData("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")]
+        public void NameDiagnosticsTranslateWhitespaceAndLengthErrors(string name)
+        {
+            var fixture = new Fixture();
+
+            Assert.NotEmpty(NodeEditingLogic.ValidateCandidate(
+                fixture.Project,
+                CreateRawResult(
+                    fixture.BlockCall.Id,
+                    CallNodeKind.BlockCall,
+                    fixture.FunctionBlock.Id,
+                    instanceName: name)));
+        }
+
+        [Fact]
+        public void UnknownNameDiagnosticHasASafeFallback()
+        {
+            var method = typeof(NodeEditingLogic).GetMethod(
+                "TranslateSclNameError",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            var translated = (string)method.Invoke(null, new object[] { "future validation error" });
+
+            Assert.False(string.IsNullOrWhiteSpace(translated));
+        }
+
+        [Fact]
+        public void EmptyAffectedPinSetAndCompleteSymbolEnumerationAreSafe()
+        {
+            var fixture = new Fixture();
+            var callBlock = new CallBlockDefinition { Name = "FC_Complete" };
+            callBlock.Units.Add(new UnitDefinition
+            {
+                Name = "CompleteMotor",
+                BlockId = fixture.FunctionBlock.Id,
+                BlockName = fixture.FunctionBlock.Name
+            });
+            fixture.Project.Plant.CallBlocks.Add(callBlock);
+            var errors = new List<string>();
+            var wireValidation = typeof(NodeEditingLogic).GetMethod(
+                "ValidateAffectedWireTypes",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            wireValidation.Invoke(
+                null,
+                new object[] { fixture.Project, new Guid[0], "Bool", errors });
+
+            var symbolEnumeration = typeof(NodeEditingLogic).GetMethod(
+                "EnumerateGlobalSymbols",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var symbols = (System.Collections.IEnumerable)symbolEnumeration.Invoke(
+                null,
+                new object[] { fixture.Project, null, null, null, null });
+            var count = 0;
+            foreach (var symbol in symbols)
+            {
+                Assert.NotNull(symbol);
+                count++;
+            }
+
+            Assert.Empty(errors);
+            Assert.True(count > 0);
+        }
+
+        private static NodeEditResult CreateRawResult(
+            Guid nodeId,
+            CallNodeKind kind,
+            Guid blockDefinitionId = default(Guid),
+            string instanceName = "",
+            string literal = "",
+            string dataType = "")
+        {
+            return new NodeEditResult(
+                nodeId,
+                kind,
+                blockDefinitionId,
+                instanceName,
+                false,
+                literal,
+                dataType,
+                Guid.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                TerminalDirection.Source,
+                null);
+        }
+
+        private sealed class PretendConstantNode : CallNode
+        {
+            public override CallNodeKind Kind { get { return CallNodeKind.Constant; } }
         }
 
         private sealed class Fixture

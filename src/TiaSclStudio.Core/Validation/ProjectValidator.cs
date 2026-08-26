@@ -9,7 +9,7 @@ namespace TiaSclStudio.Core.Validation
     public sealed class ProjectValidator
     {
         private static readonly Regex VersionPattern =
-            new Regex("^[0-9]+\\.[0-9]+$", RegexOptions.CultureInvariant);
+            new Regex("^[0-9]+\\.[0-9]+$", RegexOptions.CultureInvariant, SclRegex.MatchTimeout);
 
         public ValidationResult Validate(PlantProject project)
         {
@@ -89,6 +89,7 @@ namespace TiaSclStudio.Core.Validation
 
             ValidateUdtDependencyGraph(dataTypes, result);
 
+            var addressedTags = new List<AddressedTag>();
             foreach (var tag in tags)
             {
                 var path = "Tags[" + Display(tag.Name) + "]";
@@ -120,8 +121,14 @@ namespace TiaSclStudio.Core.Validation
                             addressError,
                             path + ".Address");
                     }
+                    else
+                    {
+                        addressedTags.Add(new AddressedTag(tag, path, canonicalAddress, addressSpec));
+                    }
                 }
             }
+
+            ValidateAddressOverlaps(addressedTags, result);
 
             foreach (var group in dataBlockVariables.GroupBy(
                 item => item.DataBlockName ?? string.Empty,
@@ -654,6 +661,77 @@ namespace TiaSclStudio.Core.Validation
             ids.Add(id, path);
         }
 
+        private sealed class AddressedTag
+        {
+            public AddressedTag(TagDefinition tag, string path, string canonicalAddress, PlcAddressSpec spec)
+            {
+                Tag = tag;
+                Path = path;
+                CanonicalAddress = canonicalAddress;
+                Spec = spec;
+            }
+
+            public TagDefinition Tag { get; private set; }
+
+            public string Path { get; private set; }
+
+            public string CanonicalAddress { get; private set; }
+
+            public PlcAddressSpec Spec { get; private set; }
+        }
+
+        /// <summary>
+        /// Reports tags whose addresses cover any of the same bits. Two valid
+        /// addresses can still be the same memory: %MW10 contains %M10.0, and
+        /// writing the word then silently changes the bit. Nothing downstream
+        /// can catch it — the SCL is well formed and the PLC compiles it — so
+        /// this is the only place the engineer can be told.
+        ///
+        /// It is a warning, not an error. Overlaying a status word with named
+        /// bits is standard Siemens practice, and refusing to generate would
+        /// make the tool unusable for a common, correct layout.
+        /// </summary>
+        private static void ValidateAddressOverlaps(
+            IList<AddressedTag> addressedTags,
+            ValidationResult result)
+        {
+            // Sorting by area and start bit turns the pairwise comparison into a
+            // sweep: once a later tag starts after the current one ends, no tag
+            // after it can overlap either.
+            var ordered = addressedTags
+                .OrderBy(item => item.Spec.Area)
+                .ThenBy(item => item.Spec.FirstBit)
+                .ThenBy(item => item.Spec.LastBit)
+                .ToList();
+
+            for (var index = 0; index < ordered.Count; index++)
+            {
+                var current = ordered[index];
+                for (var other = index + 1; other < ordered.Count; other++)
+                {
+                    var candidate = ordered[other];
+                    if (candidate.Spec.Area != current.Spec.Area ||
+                        candidate.Spec.FirstBit > current.Spec.LastBit)
+                    {
+                        break;
+                    }
+
+                    if (ReferenceEquals(current.Tag, candidate.Tag))
+                    {
+                        continue;
+                    }
+
+                    result.Add(
+                        ValidationSeverity.Warning,
+                        "TAG_ADDRESS_OVERLAP",
+                        "Tag '" + Display(current.Tag.Name) + "' at " + current.CanonicalAddress +
+                        " occupies the same memory as '" + Display(candidate.Tag.Name) + "' at " +
+                        candidate.CanonicalAddress + "; writing one changes the other.",
+                        candidate.Path + ".Address");
+                }
+            }
+        }
+
         private static void ValidateCollection<T>(IEnumerable<T> items, string path, ValidationResult result)
             where T : class
         {
@@ -860,7 +938,11 @@ namespace TiaSclStudio.Core.Validation
             return string.IsNullOrWhiteSpace(value) ? "?" : value.Trim();
         }
 
+        // Constrained to reference types: the null filter below is only
+        // meaningful for them, and an unconstrained T would silently keep every
+        // element of a value-type sequence.
         private static List<T> Safe<T>(IEnumerable<T> items)
+            where T : class
         {
             return items == null ? new List<T>() : items.Where(item => item != null).ToList();
         }

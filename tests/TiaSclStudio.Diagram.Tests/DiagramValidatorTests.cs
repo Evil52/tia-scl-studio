@@ -595,6 +595,49 @@ namespace TiaSclStudio.Diagram.Tests
         }
 
         [Fact]
+        public void ReportsEveryRemainingMalformedVisualShape()
+        {
+            var sheet = DemoProjects.Valve().Sheets[0];
+            sheet.Zoom = double.NaN;
+            sheet.Nodes[0].Pins[0].Id = Guid.Empty;
+            sheet.Nodes[0].X = double.PositiveInfinity;
+            var group = new DiagramGroup("Broken", 0.0, 0.0, 100.0, 100.0)
+            {
+                Id = Guid.Empty,
+                MemberNodeIds = null
+            };
+            sheet.Groups.Add(group);
+
+            var result = Validate(sheet);
+
+            Assert.True(HasCode(result, "DGM067"), Codes(result));
+            Assert.True(HasCode(result, "DGM009"), Codes(result));
+            Assert.True(HasCode(result, "DGM068"), Codes(result));
+            Assert.True(HasCode(result, "DGM042"), Codes(result));
+            Assert.True(HasCode(result, "DGM051"), Codes(result));
+        }
+
+        [Fact]
+        public void ReportsTerminalPinsWhoseDirectionContradictsTheirNodes()
+        {
+            var project = DemoProjects.Valve();
+            var sheet = project.Sheets[0];
+            var tag = sheet.Nodes.OfType<TagNode>().First();
+            tag.Pins[0].Direction = tag.TerminalDirection == TerminalDirection.Source
+                ? PinDirection.Input
+                : PinDirection.Output;
+
+            var definition = ModelBuilder.DbVariable("DB_Valve", "Data", "Bool");
+            var dbVariable = ModelBuilder.PlaceDbVariable(sheet, definition, TerminalDirection.Source);
+            dbVariable.Pins[0].Direction = PinDirection.Input;
+
+            var result = Validate(sheet);
+
+            Assert.True(HasCode(result, "DGM005"), Codes(result));
+            Assert.True(HasCode(result, "DGM006"), Codes(result));
+        }
+
+        [Fact]
         public void ValidationDoesNotMutateTheSheet()
         {
             var sheet = DemoProjects.Valve().Sheets[0];

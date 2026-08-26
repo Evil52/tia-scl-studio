@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -559,6 +560,53 @@ namespace TiaSclStudio.Diagram.Tests
                 Storage().Save(second, project);
 
                 Assert.Equal(File.ReadAllBytes(first), File.ReadAllBytes(second));
+            }
+        }
+
+        [Fact]
+        public void CommitRetriesWhenTheDestinationIsTemporarilyLocked()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var destination = directory.WriteAllText("locked.tiasclproj", "old");
+                var staged = directory.WriteAllText("staged.tmp", "new");
+                using (new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    var exception = Assert.Throws<TargetInvocationException>(() =>
+                        typeof(DiagramProjectStorage)
+                            .GetMethod("CommitStagedFile", BindingFlags.NonPublic | BindingFlags.Static)
+                            .Invoke(null, new object[] { staged, destination }));
+
+                    Assert.IsType<IOException>(exception.InnerException);
+                }
+            }
+        }
+
+        [Fact]
+        public void BestEffortDeleteIgnoresLockedAndReadOnlyFiles()
+        {
+            using (var directory = new TemporaryDirectory())
+            {
+                var method = typeof(DiagramProjectStorage)
+                    .GetMethod("TryDelete", BindingFlags.NonPublic | BindingFlags.Static);
+                var locked = directory.WriteAllText("locked.tmp", "data");
+                using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    method.Invoke(null, new object[] { locked });
+                    Assert.True(File.Exists(locked));
+                }
+
+                var readOnly = directory.WriteAllText("readonly.tmp", "data");
+                File.SetAttributes(readOnly, FileAttributes.ReadOnly);
+                try
+                {
+                    method.Invoke(null, new object[] { readOnly });
+                    Assert.True(File.Exists(readOnly));
+                }
+                finally
+                {
+                    File.SetAttributes(readOnly, FileAttributes.Normal);
+                }
             }
         }
     }

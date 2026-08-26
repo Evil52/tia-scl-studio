@@ -256,5 +256,17 @@ namespace TiaSclStudio.Diagram.Tests
             Assert.Equal(before.Sheets[0].Wires.Count, restored.Sheets[0].Wires.Count);
             Assert.Contains(restored.Sheets[0].Nodes, node => node.Id == removed.Id);
         }
+
+        [Fact]
+        public void NextDescriptionsMirrorTheCurrentUndoAndRedoEntries()
+        {
+            var history = new DiagramEditHistory();
+            var before = DemoProjects.Valve();
+            history.Record("rename", before, Edited(before, "After"));
+
+            Assert.Equal("rename", history.NextUndoDescription);
+            history.Undo();
+            Assert.Equal("rename", history.NextRedoDescription);
+        }
     }
 }

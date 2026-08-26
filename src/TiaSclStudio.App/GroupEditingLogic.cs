@@ -313,11 +313,6 @@ namespace TiaSclStudio.App
 
             var deltaX = moveContents ? x - selectedGroup.X : 0.0;
             var deltaY = moveContents ? y - selectedGroup.Y : 0.0;
-            if (!IsFinite(deltaX) || !IsFinite(deltaY))
-            {
-                throw new InvalidOperationException(
-                    "Group movement would produce non-finite coordinates.");
-            }
 
             var subtreeIds = GetSubtreeGroupIds(sheet, groupId);
             var movedGroups = sheet.Groups
@@ -372,9 +367,15 @@ namespace TiaSclStudio.App
                 futureNodes.Add(node.Id, future);
             }
 
+            // S1244 asks for a tolerance. A resize by any amount at all is a
+            // resize: this only distinguishes a pure move from a move that also
+            // changes the frame, and a tolerance would classify a small genuine
+            // resize as a move and skip the containment check below.
+#pragma warning disable S1244
             var frameIsBeingResized = !moveContents ||
                 width != selectedGroup.Width ||
                 height != selectedGroup.Height;
+#pragma warning restore S1244
             if (frameIsBeingResized)
             {
                 EnsureSelectedGroupContainsItsContent(

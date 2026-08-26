@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using TiaSclStudio.Core.Generation;
 using TiaSclStudio.Core.Model;
 using TiaSclStudio.Diagram.Generation;
 using TiaSclStudio.Diagram.Model;
@@ -357,6 +360,266 @@ namespace TiaSclStudio.Integration.Tests
             Assert.Equal(
                 before.Restore().Plant.Blocks.Select(block => block.Id).ToArray(),
                 after.Restore().Plant.Blocks.Select(block => block.Id).ToArray());
+        }
+
+        [Fact]
+        public void EveryMalformedPlantCollectionFailsClosedWithoutThrowing()
+        {
+            var malformed = new List<DiagramProject>();
+
+            var variables = DemoProjects.Valve();
+            variables.Plant.DataBlockVariables = null;
+            malformed.Add(variables);
+
+            var nullUnit = DemoProjects.Valve();
+            var callBlock = new CallBlockDefinition { Name = "FC_Extra" };
+            callBlock.Units.Add(null);
+            nullUnit.Plant.CallBlocks.Add(callBlock);
+            malformed.Add(nullUnit);
+
+            var nullBindings = DemoProjects.Valve();
+            callBlock = new CallBlockDefinition { Name = "FC_Extra" };
+            callBlock.Units.Add(new UnitDefinition
+            {
+                Name = "Unit",
+                BlockId = nullBindings.Plant.Blocks[0].Id,
+                BlockName = nullBindings.Plant.Blocks[0].Name,
+                Bindings = null
+            });
+            nullBindings.Plant.CallBlocks.Add(callBlock);
+            malformed.Add(nullBindings);
+
+            var nullBinding = DemoProjects.Valve();
+            callBlock = new CallBlockDefinition { Name = "FC_Extra" };
+            var unit = new UnitDefinition("Unit", nullBinding.Plant.Blocks[0]);
+            unit.Bindings.Add(null);
+            callBlock.Units.Add(unit);
+            nullBinding.Plant.CallBlocks.Add(callBlock);
+            malformed.Add(nullBinding);
+
+            foreach (var project in malformed)
+            {
+                var result = Compile(project);
+                Assert.True(HasCode(result, "DGP005"), Issues(result));
+                Assert.Empty(result.GeneratedSources);
+            }
+        }
+
+        [Fact]
+        public void EveryMalformedSheetShapeFailsClosedWithoutThrowing()
+        {
+            var malformed = new List<DiagramProject>();
+
+            var nodes = DemoProjects.Valve();
+            nodes.Sheets[0].Nodes = null;
+            malformed.Add(nodes);
+
+            var wires = DemoProjects.Valve();
+            wires.Sheets[0].Wires = null;
+            malformed.Add(wires);
+
+            var nullNode = DemoProjects.Valve();
+            nullNode.Sheets[0].Nodes.Add(null);
+            malformed.Add(nullNode);
+
+            var nullPins = DemoProjects.Valve();
+            nullPins.Sheets[0].Nodes[0].Pins = null;
+            malformed.Add(nullPins);
+
+            var nullPin = DemoProjects.Valve();
+            nullPin.Sheets[0].Nodes[0].Pins.Add(null);
+            malformed.Add(nullPin);
+
+            var nullWire = DemoProjects.Valve();
+            nullWire.Sheets[0].Wires.Add(null);
+            malformed.Add(nullWire);
+
+            foreach (var project in malformed)
+            {
+                var result = Compile(project);
+                Assert.Contains(result.Issues, issue => issue.Code == "DGP003");
+                Assert.Empty(result.GeneratedSources);
+            }
+        }
+
+        [Fact]
+        public void StableIdsAreCheckedWithinOneSheetAndEmptyIdsRemainCoreDiagnostics()
+        {
+            var duplicate = DemoProjects.Valve();
+            duplicate.Sheets[0].Nodes[0].Pins[0].Id = duplicate.Sheets[0].Nodes[0].Id;
+
+            var empty = DemoProjects.Valve();
+            empty.Sheets[0].Nodes[0].Id = Guid.Empty;
+
+            Assert.True(HasCode(Compile(duplicate), "DGP006"));
+            Assert.Contains(Compile(empty).Issues, issue => issue.Code == "DGM008");
+        }
+
+        [Fact]
+        public void PlantIdentityAndSymbolRegistryIncludeDbVariablesCallBlocksAndUnits()
+        {
+            var project = DemoProjects.Valve();
+            var udt = ModelBuilder.Udt("State_Data", new UdtMember("Value", "Bool"));
+            project.Plant.DataTypes.Add(udt);
+            project.Plant.DataBlockVariables.Add(
+                ModelBuilder.DbVariable("State_DB", "State", udt.Name));
+
+            var helper = ModelBuilder.FunctionBlock("FB_Helper");
+            project.Plant.Blocks.Add(helper);
+            var callBlock = new CallBlockDefinition
+            {
+                Name = "FB_Coordinator",
+                Kind = BlockKind.FunctionBlock,
+                ReturnType = "Void",
+                InstanceDbName = string.Empty
+            };
+            callBlock.Interface.Add(new InterfaceMember(
+                "Enabled",
+                "Bool",
+                InterfaceSection.Input));
+            var unit = new UnitDefinition("Helper01", helper);
+            unit.BlockId = Guid.NewGuid();
+            unit.Bindings.Add(new ParameterBinding
+            {
+                ParameterName = "Unused",
+                Expression = "TRUE"
+            });
+            callBlock.Units.Add(unit);
+            project.Plant.CallBlocks.Add(callBlock);
+
+            var result = Compile(project);
+
+            Assert.NotNull(result);
+            Assert.DoesNotContain(result.Issues, issue => issue.Code == "DGP005");
+        }
+
+        [Fact]
+        public void EmptyPlantAndSheetSymbolsAreIgnoredByTheCrossProjectRegistries()
+        {
+            var project = DemoProjects.Valve();
+            project.Plant.Tags.Add(new TagDefinition
+            {
+                Id = Guid.Empty,
+                Name = string.Empty,
+                DataType = "Bool",
+                Address = "%M1.0"
+            });
+            project.Sheets.Add(new CallSheet { Name = string.Empty });
+
+            var result = Compile(project);
+
+            Assert.False(result.IsSuccess);
+            Assert.Empty(result.GeneratedSources);
+        }
+
+        [Theory]
+        [InlineData(true, "DGP009")]
+        [InlineData(false, "DGP010")]
+        public void SourceBundlerRejectsDuplicateAndConflictingFileNames(
+            bool sameContent,
+            string expectedCode)
+        {
+            var plant = ModelBuilder.Plant();
+            var callBlock = new CallBlockDefinition
+            {
+                Name = "FC_Same",
+                Kind = BlockKind.Function,
+                ReturnType = "Void"
+            };
+            plant.CallBlocks.Add(callBlock);
+            var plantSource = new SclGenerator().GenerateProject(plant)
+                .Single(source => source.FileName == "99_FC_Same.scl");
+            var sheet = new CallSheet { Name = "FC_Same" };
+            var generated = new GeneratedSource(
+                "99_FC_Same.scl",
+                sameContent ? plantSource.Content : plantSource.Content + "// different\r\n",
+                GeneratedSourceKind.CallBlock,
+                0);
+            var compilation = new DiagramCompilationResult(
+                generated.Content,
+                new DiagramIssue[0],
+                new Guid[0],
+                new[] { generated });
+            var sheetResult = (DiagramSheetCompilationResult)Activator.CreateInstance(
+                typeof(DiagramSheetCompilationResult),
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                null,
+                new object[]
+                {
+                    0,
+                    (Guid?)sheet.Id,
+                    sheet.Name,
+                    compilation,
+                    new DiagramProjectIssue[0]
+                },
+                null);
+            var issues = new List<DiagramProjectIssue>();
+            var buildBundle = typeof(DiagramProjectCompiler).GetMethod(
+                "BuildSourceBundle",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            var bundle = (IList<GeneratedSource>)buildBundle.Invoke(
+                null,
+                new object[]
+                {
+                    plant,
+                    new List<CallSheet> { sheet },
+                    new List<DiagramSheetCompilationResult> { sheetResult },
+                    issues
+                });
+
+            Assert.Empty(bundle);
+            Assert.Contains(issues, issue => issue.Code == expectedCode);
+        }
+
+        [Fact]
+        public void CompilerFileNameHelpersCoverWindowsAndLengthBoundaries()
+        {
+            var compiler = typeof(DiagramProjectCompiler);
+            var makeName = compiler.GetMethod(
+                "MakeSafeFileName",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var makeToken = compiler.GetMethod(
+                "MakeSafeFileToken",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var reserved = compiler.GetMethod(
+                "IsReservedWindowsFileName",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var rank = compiler.GetMethod(
+                "DependencyRank",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var visualName = compiler.GetMethod(
+                "MakeVisualInstanceFileName",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.Equal("Fallback.scl", makeName.Invoke(null, new object[] { null, "Fallback" }));
+            Assert.Equal("Fallback.scl", makeName.Invoke(null, new object[] { "C:\\folder\\", "Fallback" }));
+            Assert.Equal("_CON", makeName.Invoke(null, new object[] { "CON", "Fallback" }));
+            Assert.Equal("Fallback.scl", makeName.Invoke(null, new object[] { "...", "Fallback" }));
+            var longName = (string)makeName.Invoke(
+                null,
+                new object[] { new string('A', 220) + ".scl", "Fallback" });
+            Assert.True(longName.Length <= 180);
+
+            Assert.Equal("Sheet", makeToken.Invoke(null, new object[] { null, "Sheet" }));
+            Assert.Equal("A_B", makeToken.Invoke(null, new object[] { "A-B", "Sheet" }));
+            Assert.StartsWith("90_Instances_001_Sheet", (string)visualName.Invoke(
+                null,
+                new object[] { 0, null }));
+
+            Assert.False((bool)reserved.Invoke(null, new object[] { null }));
+            Assert.True((bool)reserved.Invoke(null, new object[] { "AUX" }));
+            Assert.True((bool)reserved.Invoke(null, new object[] { "COM1" }));
+            Assert.False((bool)reserved.Invoke(null, new object[] { "COM0" }));
+            Assert.Equal(int.MaxValue, rank.Invoke(
+                null,
+                new object[] { (GeneratedSourceKind)999 }));
+            Assert.Equal(2, rank.Invoke(
+                null,
+                new object[] { GeneratedSourceKind.GlobalDataBlocks }));
+            Assert.Equal(5, rank.Invoke(
+                null,
+                new object[] { GeneratedSourceKind.CallBlockInstanceDataBlock }));
         }
 
         private static int Rank(Core.Model.GeneratedSourceKind kind)

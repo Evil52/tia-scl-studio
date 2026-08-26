@@ -1,5 +1,8 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text;
 using TiaSclStudio.Diagram.History;
 using TiaSclStudio.Diagram.Model;
 using TiaSclStudio.TestSupport;
@@ -138,6 +141,18 @@ namespace TiaSclStudio.Diagram.Tests
             Assert.True(
                 double.IsNaN(restored.Sheets[0].Nodes[0].X),
                 "A NaN coordinate did not survive the round trip and was silently changed.");
+        }
+
+        [Fact]
+        public void RestoreRejectsASnapshotWhoseRootExplicitlyDeserializesToNull()
+        {
+            var bytes = Encoding.UTF8.GetBytes(
+                "<TiaSclStudioProject xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\" />");
+            var snapshot = (DiagramProjectSnapshot)typeof(DiagramProjectSnapshot)
+                .GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(byte[]) }, null)
+                .Invoke(new object[] { bytes });
+
+            Assert.Throws<InvalidDataException>(() => snapshot.Restore());
         }
     }
 }

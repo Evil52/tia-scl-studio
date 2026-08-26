@@ -58,6 +58,7 @@
     <Compile Include="Validation\PlcDataTypes.cs" />
     <Compile Include="Validation\ProjectValidator.cs" />
     <Compile Include="Validation\SclName.cs" />
+    <Compile Include="Validation\SclRegex.cs" />
     <Compile Include="Validation\SclText.cs" />
     <Compile Include="Validation\ValidationIssue.cs" />
     <Compile Include="Validation\ValidationResult.cs" />

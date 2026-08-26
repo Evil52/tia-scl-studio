@@ -11,6 +11,9 @@
 .PARAMETER NoBuild
     Run the tests against whatever is already built.
 
+.PARAMETER MinimumScopedLineCoverage
+    Minimum line coverage for the Sonar production scope. The default is 100.
+
 .EXAMPLE
     .\build\Invoke-Tests.ps1
     .\build\Invoke-Tests.ps1 -Coverage
@@ -20,7 +23,9 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
     [switch] $Coverage,
-    [switch] $NoBuild
+    [switch] $NoBuild,
+    [ValidateRange(0.0, 100.0)]
+    [double] $MinimumScopedLineCoverage = 100.0
 )
 
 Set-StrictMode -Version Latest
@@ -83,6 +88,69 @@ if (-not (Test-Path $altCover))
 
 $reports = @()
 $failedSuites = @()
+$coverageGate = @{
+    Visited = New-Object 'System.Collections.Generic.HashSet[string]'
+    All     = New-Object 'System.Collections.Generic.HashSet[string]'
+}
+
+function Test-IsScopedProductionSource
+{
+    param(
+        [string] $ModuleName,
+        [string] $SourcePath
+    )
+
+    if ($ModuleName -notin @(
+        'TiaSclStudio.Core',
+        'TiaSclStudio.Diagram',
+        'TiaSclStudio.Openness',
+        'TiaSclStudio.App'))
+    {
+        return $false
+    }
+
+    $fullPath = [IO.Path]::GetFullPath($SourcePath)
+    $rootPrefix = $root.TrimEnd('\') + '\'
+    if (-not $fullPath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase))
+    {
+        return $false
+    }
+
+    $relative = $fullPath.Substring($rootPrefix.Length).Replace('/', '\')
+    if ($relative -like '*\bin\*' -or
+        $relative -like '*\obj\*' -or
+        $relative -like '*\Properties\AssemblyInfo.cs')
+    {
+        return $false
+    }
+
+    # These files remain part of static analysis. Only runtime coverage is
+    # excluded: they are WPF event wiring or boundaries that require a real
+    # installed TIA Portal/Siemens runtime and are exercised on the TIA VM.
+    if ($relative -like 'src\TiaSclStudio.App\MainWindow*.cs' -or
+        $relative -like 'src\TiaSclStudio.App\*.xaml' -or
+        $relative -like 'src\TiaSclStudio.App\*.xaml.cs' -or
+        $relative -eq 'src\TiaSclStudio.App\TiaGatewayWorker.cs' -or
+        $relative -eq 'src\TiaSclStudio.Openness\Discovery\OpennessInstallationLocator.cs' -or
+        $relative -like 'src\TiaSclStudio.Openness.Legacy.V17\*')
+    {
+        return $false
+    }
+
+    return $true
+}
+
+# Tests that start the product as a child process cannot be measured in the
+# same pass as the rest of their suite. The child loads the instrumented
+# assemblies from the same staging directory and writes to the same AltCover
+# visit file, so whichever process flushes last wins and the other's data is
+# lost. That showed up as this assembly's coverage swinging by thirty points
+# between identical runs. These tests still run, just afterwards and without
+# instrumentation, where all they have to prove is that the shipped executable
+# works.
+$processLaunchingTests = @{
+    'TiaSclStudio.EndToEnd.Tests' = 'SelfTestExecutableTests'
+}
 
 foreach ($name in Get-TestProjectNames)
 {
@@ -108,12 +176,24 @@ foreach ($name in Get-TestProjectNames)
             '--assemblyFilter=Tests$' | Out-Null
         Assert-LastExitCode "Instrumenting $name"
 
-        & $vstest (Join-Path $staging "$name.dll") `
-            /Platform:x64 `
-            /Framework:".NETFramework,Version=v4.8" `
-            "/ResultsDirectory:$resultsDirectory" `
-            /Logger:"trx;LogFileName=$name.trx" `
-            /Logger:"console;verbosity=minimal"
+        $instrumentedArguments = @(
+            (Join-Path $staging "$name.dll"),
+            '/Platform:x64',
+            '/Framework:.NETFramework,Version=v4.8',
+            "/ResultsDirectory:$resultsDirectory",
+            "/Logger:trx;LogFileName=$name.trx",
+            '/Logger:console;verbosity=minimal'
+        )
+
+        if ($processLaunchingTests.ContainsKey($name))
+        {
+            # "!~" is vstest's does-not-contain operator; wrapping the positive
+            # form in "!( )" is not valid filter syntax and silently selects
+            # nothing.
+            $instrumentedArguments += "/TestCaseFilter:FullyQualifiedName!~$($processLaunchingTests[$name])"
+        }
+
+        & $vstest @instrumentedArguments
         if ($LASTEXITCODE -ne 0)
         {
             $failedSuites += $name
@@ -133,6 +213,22 @@ foreach ($name in Get-TestProjectNames)
     finally
     {
         Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($processLaunchingTests.ContainsKey($name))
+    {
+        Write-Step "Running the process-launching tests of $name without instrumentation"
+        & $vstest (Join-Path $root "tests\$name\bin\x64\$Configuration\$name.dll") `
+            /Platform:x64 `
+            /Framework:".NETFramework,Version=v4.8" `
+            "/ResultsDirectory:$resultsDirectory" `
+            "/Logger:trx;LogFileName=$name.subprocess.trx" `
+            '/Logger:console;verbosity=minimal' `
+            "/TestCaseFilter:FullyQualifiedName~$($processLaunchingTests[$name])"
+        if ($LASTEXITCODE -ne 0)
+        {
+            $failedSuites += "$name (process tests)"
+        }
     }
 }
 
@@ -181,6 +277,15 @@ foreach ($report in $reports)
             {
                 [void]$bucket.Visited.Add($key)
             }
+
+            if (Test-IsScopedProductionSource ([string]$module.ModuleName) $file)
+            {
+                [void]$coverageGate.All.Add($key)
+                if ([int]$point.vc -gt 0)
+                {
+                    [void]$coverageGate.Visited.Add($key)
+                }
+            }
         }
     }
 }
@@ -197,6 +302,28 @@ foreach ($name in ($modules.Keys | Sort-Object))
 
     $percent = [math]::Round(100.0 * $bucket.Visited.Count / $bucket.All.Count, 2)
     Write-Host ("  {0,-34} {1,6}%  ({2}/{3} points)" -f $name, $percent, $bucket.Visited.Count, $bucket.All.Count)
+}
+
+if ($coverageGate.All.Count -eq 0)
+{
+    $failedSuites += 'Scoped line coverage (no production sequence points found)'
+}
+else
+{
+    $scopedPercent = 100.0 * $coverageGate.Visited.Count / $coverageGate.All.Count
+    $coverageColor = if ($scopedPercent + 0.0000001 -ge $MinimumScopedLineCoverage) { 'Green' } else { 'Red' }
+    Write-Host ''
+    Write-Host (
+        'Sonar production-scope line coverage: {0}% ({1}/{2} points; required {3}%)' -f
+        [math]::Round($scopedPercent, 2),
+        $coverageGate.Visited.Count,
+        $coverageGate.All.Count,
+        $MinimumScopedLineCoverage) -ForegroundColor $coverageColor
+
+    if ($scopedPercent + 0.0000001 -lt $MinimumScopedLineCoverage)
+    {
+        $failedSuites += 'Scoped line coverage'
+    }
 }
 
 Write-Host ''

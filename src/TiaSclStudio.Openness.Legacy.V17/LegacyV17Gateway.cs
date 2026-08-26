@@ -28,19 +28,23 @@ namespace TiaSclStudio.Openness.Legacy.V17
     {
         private static readonly Regex SafeIdentifierPattern = new Regex(
             "^[A-Za-z_][A-Za-z0-9_]*$",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+            RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly Regex OwnershipMarkerPattern = new Regex(
             "^[A-Za-z_][A-Za-z0-9_]{0,7}$",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+            RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly Regex S71200CpuTypePattern = new Regex(
             "\\bCPU\\s+12[0-9]{2}",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly Regex S71500CpuTypePattern = new Regex(
             "\\bCPU\\s+15[0-9]{2}",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            SclRegexTimeouts.MatchTimeout);
 
         private static readonly object PreservedSessionsLock = new object();
         private static readonly IList<TiaPortal> PreservedSessions = new List<TiaPortal>();
@@ -3215,7 +3219,9 @@ namespace TiaSclStudio.Openness.Legacy.V17
             var normalizedIdentifier = Regex.Replace(
                 typeIdentifier ?? string.Empty,
                 "[^A-Za-z0-9]",
-                string.Empty).ToUpperInvariant();
+                string.Empty,
+                RegexOptions.CultureInvariant,
+                SclRegexTimeouts.MatchTimeout).ToUpperInvariant();
             if (normalizedIdentifier.Contains("6ES721"))
             {
                 return TiaCpuFamily.S71200;

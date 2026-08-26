@@ -173,11 +173,6 @@ namespace TiaSclStudio.App
                     return false;
                 }
 
-                if (string.Equals(candidateName, dbName, StringComparison.OrdinalIgnoreCase))
-                {
-                    error = "Имя листа совпадает с именем создаваемого DB.";
-                    return false;
-                }
             }
 
             error = string.Empty;

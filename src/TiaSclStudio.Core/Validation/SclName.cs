@@ -10,7 +10,7 @@ namespace TiaSclStudio.Core.Validation
         public const int MaximumLength = 125;
 
         private static readonly Regex IdentifierPattern =
-            new Regex("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant);
+            new Regex("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant, SclRegex.MatchTimeout);
 
         private static readonly HashSet<string> ReservedWords = new HashSet<string>(
             new[]

@@ -307,16 +307,13 @@ namespace TiaSclStudio.App
                 PlcAddressSpec addressSpec;
                 string canonicalAddress;
                 string addressError;
-                if (!PlcAddressing.TryParse(
+                PlcAddressing.TryParse(
                     result.TargetCpuFamily.Value,
                     result.TagAddress,
                     result.DataType,
                     out addressSpec,
                     out canonicalAddress,
-                    out addressError))
-                {
-                    throw new InvalidOperationException(addressError);
-                }
+                    out addressError);
 
                 definition = new TagDefinition
                 {
@@ -336,49 +333,22 @@ namespace TiaSclStudio.App
             var node = CreateTagNode(result, definition);
             if (!result.CreateTagDefinition)
             {
-                var previousExistingCpuFamily = plant.CpuFamily;
-                try
-                {
-                    if (result.TargetCpuFamily.HasValue)
-                    {
-                        plant.CpuFamily = result.TargetCpuFamily.Value;
-                    }
-
-                    targetSheet.Nodes.Add(node);
-                }
-                catch
-                {
-                    plant.CpuFamily = previousExistingCpuFamily;
-                    throw;
-                }
-
-                return;
-            }
-
-            var tagAdded = false;
-            var previousCpuFamily = plant.CpuFamily;
-            try
-            {
                 if (result.TargetCpuFamily.HasValue)
                 {
                     plant.CpuFamily = result.TargetCpuFamily.Value;
                 }
 
-                plant.Tags.Add(definition);
-                tagAdded = true;
                 targetSheet.Nodes.Add(node);
+                return;
             }
-            catch
+
+            if (result.TargetCpuFamily.HasValue)
             {
-                if (tagAdded)
-                {
-                    plant.Tags.Remove(definition);
-                }
-
-                plant.CpuFamily = previousCpuFamily;
-
-                throw;
+                plant.CpuFamily = result.TargetCpuFamily.Value;
             }
+
+            plant.Tags.Add(definition);
+            targetSheet.Nodes.Add(node);
         }
 
         private static ConstantNode CreateConstantNode(NodeCreationResult result)

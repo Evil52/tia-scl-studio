@@ -456,7 +456,14 @@ namespace TiaSclStudio.App
             DeleteDiagramSelection();
         }
 
+        // S3168 asks for Task instead of void. This is the continuation of a
+        // double-click handler, which WPF can only invoke as void, and the one
+        // awaited call — RefreshHardwareIoCatalogAsync — reports every failure
+        // through its own catch and never propagates. App.OnStartup installs a
+        // dispatcher handler as the backstop for anything that still escapes.
+#pragma warning disable S3168
         private async void EditNodeProperties(CallNode node)
+#pragma warning restore S3168
         {
             if (!EnsureModelEditingAvailable() || node == null || _project == null)
             {

@@ -719,7 +719,11 @@ namespace TiaSclStudio.Core.Generation
             return SclText.SingleLine(value);
         }
 
+        // Constrained to reference types: the null filter below is only
+        // meaningful for them, and an unconstrained T would silently keep every
+        // element of a value-type sequence.
         private static List<T> Safe<T>(IEnumerable<T> items)
+            where T : class
         {
             return items == null ? new List<T>() : items.Where(item => item != null).ToList();
         }

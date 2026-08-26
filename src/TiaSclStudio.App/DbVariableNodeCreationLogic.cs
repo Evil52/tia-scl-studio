@@ -197,10 +197,18 @@ namespace TiaSclStudio.App
         private static HashSet<string> EnumerateOwnedGlobalSymbols(PlantProject plant)
         {
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var name in (plant.Blocks ?? new List<BlockDefinition>()).Select(item => item.Name)
-                .Concat((plant.DataTypes ?? new List<UdtDefinition>()).Select(item => item.Name))
-                .Concat((plant.Tags ?? new List<TagDefinition>()).Select(item => item.Name))
-                .Concat((plant.CallBlocks ?? new List<CallBlockDefinition>()).Select(item => item.Name)))
+            foreach (var name in (plant.Blocks ?? new List<BlockDefinition>())
+                .Where(item => item != null)
+                .Select(item => item.Name)
+                .Concat((plant.DataTypes ?? new List<UdtDefinition>())
+                    .Where(item => item != null)
+                    .Select(item => item.Name))
+                .Concat((plant.Tags ?? new List<TagDefinition>())
+                    .Where(item => item != null)
+                    .Select(item => item.Name))
+                .Concat((plant.CallBlocks ?? new List<CallBlockDefinition>())
+                    .Where(item => item != null)
+                    .Select(item => item.Name)))
             {
                 if (!string.IsNullOrWhiteSpace(name))
                 {

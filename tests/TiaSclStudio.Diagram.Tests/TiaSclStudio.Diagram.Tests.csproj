@@ -43,6 +43,8 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="CoverageEdgeCaseTests.cs" />
+    <Compile Include="DiagramSclGeneratorCoverageTests.cs" />
     <Compile Include="DiagramEditHistoryTests.cs" />
     <Compile Include="DiagramNodeFactoryTests.cs" />
     <Compile Include="DiagramProjectSnapshotTests.cs" />

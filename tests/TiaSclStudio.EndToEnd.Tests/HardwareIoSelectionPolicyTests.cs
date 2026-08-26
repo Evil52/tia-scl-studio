@@ -346,6 +346,113 @@ namespace TiaSclStudio.EndToEnd.Tests
                 node => node.TagName == "LargeInput");
         }
 
+        [Fact]
+        public void CreationValidationRejectsNullAndNonTagResults()
+        {
+            var context = HardwareIoSelectionPolicy.FromOnlineCatalog(
+                Catalog(true, GatewayCpuFamily.S71200));
+            var project = ProjectWithCpu(CoreCpuFamily.S71200);
+            string error;
+
+            Assert.Equal("project", Assert.Throws<ArgumentNullException>(() =>
+                context.TryValidateCreationResult(
+                    null,
+                    NodeCreationLogic.CreateConstant("1", "Int"),
+                    out error)).ParamName);
+            Assert.Equal("result", Assert.Throws<ArgumentNullException>(() =>
+                context.TryValidateCreationResult(project, null, out error)).ParamName);
+            Assert.False(context.TryValidateCreationResult(
+                project,
+                NodeCreationLogic.CreateConstant("1", "Int"),
+                out error));
+            Assert.NotEmpty(error);
+        }
+
+        [Fact]
+        public void CreationValidationCoversNewMissingDuplicateAndExistingTags()
+        {
+            var context = HardwareIoSelectionPolicy.FromOnlineCatalog(
+                Catalog(
+                    true,
+                    GatewayCpuFamily.S71200,
+                    Channel(TiaIoChannelKind.DigitalInput, 0, 1, "%I0.0", "Bool")));
+            var project = ProjectWithCpu(CoreCpuFamily.S71200);
+            string error;
+
+            var create = NodeCreationLogic.CreateNewTag(
+                "Input",
+                "Bool",
+                "%I0.0",
+                string.Empty,
+                TerminalDirection.Source,
+                CoreCpuFamily.S71200);
+            Assert.True(context.TryValidateCreationResult(project, create, out error), error);
+
+            var id = Guid.NewGuid();
+            var existing = NodeCreationLogic.CreateExistingTag(
+                id,
+                TerminalDirection.Source,
+                CoreCpuFamily.S71200);
+            Assert.False(context.TryValidateCreationResult(project, existing, out error));
+
+            var first = ModelBuilder.Tag("Existing", "Bool", "%I0.0");
+            first.Id = id;
+            project.Plant.Tags.Add(null);
+            project.Plant.Tags.Add(first);
+            Assert.True(context.TryValidateCreationResult(project, existing, out error), error);
+
+            var duplicate = ModelBuilder.Tag("Duplicate", "Bool", "%I0.0");
+            duplicate.Id = id;
+            project.Plant.Tags.Add(duplicate);
+            Assert.False(context.TryValidateCreationResult(project, existing, out error));
+
+            project.Plant = null;
+            Assert.False(context.TryValidateCreationResult(project, existing, out error));
+        }
+
+        [Fact]
+        public void EditValidationRejectsNullAndNonTagResultsAndAcceptsAChannel()
+        {
+            var context = HardwareIoSelectionPolicy.FromOnlineCatalog(
+                Catalog(
+                    true,
+                    GatewayCpuFamily.S71200,
+                    Channel(TiaIoChannelKind.DigitalInput, 0, 1, "%I0.0", "Bool")));
+            string error;
+
+            Assert.Equal("result", Assert.Throws<ArgumentNullException>(() =>
+                context.TryValidateEditResult(null, out error)).ParamName);
+            Assert.False(context.TryValidateEditResult(
+                NodeEditingLogic.CreateConstantResult(new ConstantNode(), "1", "Int"),
+                out error));
+
+            var definition = ModelBuilder.Tag("Input", "Bool", "%I0.0");
+            var node = new TagNode
+            {
+                TagDefinitionId = definition.Id,
+                TerminalDirection = TerminalDirection.Source
+            };
+            Assert.True(context.TryValidateEditResult(
+                NodeEditingLogic.CreateTagResult(
+                    node,
+                    definition,
+                    CoreCpuFamily.S71200),
+                out error), error);
+        }
+
+        [Fact]
+        public void UnsupportedHardwareChannelKindIsSkipped()
+        {
+            var context = HardwareIoSelectionPolicy.FromOnlineCatalog(
+                Catalog(
+                    true,
+                    GatewayCpuFamily.S71200,
+                    Channel((TiaIoChannelKind)999, 0, 1, "%I0.0", "Bool")));
+
+            Assert.Empty(context.Choices);
+            Assert.NotEmpty(context.UnavailableReason);
+        }
+
         private static DiagramProject ProjectWithCpu(CoreCpuFamily cpuFamily)
         {
             var project = ModelBuilder.Project();

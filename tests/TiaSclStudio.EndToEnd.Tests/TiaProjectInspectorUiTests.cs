@@ -201,6 +201,39 @@ namespace TiaSclStudio.App
         }
 
         [Fact]
+        public void InspectorRowsRejectNullAndRenderEveryHardwareKind()
+        {
+            Assert.Throws<ArgumentNullException>(() => new TiaProjectInspectorTagRow(null));
+            Assert.Throws<ArgumentNullException>(() => new TiaProjectInspectorHardwareRow(null));
+
+            Assert.Equal("DO", new TiaProjectInspectorHardwareRow(
+                Channel(TiaIoChannelKind.DigitalOutput, 0, 0, "%Q0.0", "Rack/DO")).Kind);
+            Assert.Equal("AI", new TiaProjectInspectorHardwareRow(
+                Channel(TiaIoChannelKind.AnalogInput, 0, 0, "%IW0", "Rack/AI")).Kind);
+            Assert.Equal(((TiaIoChannelKind)99).ToString(), new TiaProjectInspectorHardwareRow(
+                Channel((TiaIoChannelKind)99, 0, 0, "%MW0", "Rack/Unknown")).Kind);
+        }
+
+        [Fact]
+        public void MissingTagCatalogLeavesAnExplicitEmptySectionWarning()
+        {
+            var unavailableTags = new TiaPlcTagCatalog(
+                false,
+                false,
+                string.Empty,
+                string.Empty,
+                null,
+                null);
+
+            var model = Prepare(unavailableTags, HardwareCatalog(
+                Channel(TiaIoChannelKind.DigitalInput, 0, 0, "%I0.0", "Rack/DI")));
+
+            Assert.True(model.CanOpen, model.BlockingReason);
+            Assert.Empty(model.Tags);
+            Assert.NotEmpty(model.WarningText);
+        }
+
+        [Fact]
         public void FilterTokenizationNormalizesAndDeduplicatesOncePerRefresh()
         {
             var tokens = TiaProjectInspectorLogic.TokenizeFilter(

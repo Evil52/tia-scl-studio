@@ -125,6 +125,46 @@ namespace TiaSclStudio.App
         }
 
         [Fact]
+        public void ValidateReportsDuplicatePinsAndDanglingIncidentWires()
+        {
+            LogicNode duplicateNode;
+            var duplicateProject = BuildBooleanProject(out duplicateNode);
+            duplicateNode.Pins.Add(new Pin
+            {
+                NodeId = duplicateNode.Id,
+                Name = "DuplicateResult",
+                Direction = PinDirection.Output,
+                Role = PinRole.Logic,
+                DataType = "Bool"
+            });
+
+            var duplicateErrors = LogicNodeEditingLogic.ValidateCandidate(
+                duplicateProject,
+                new LogicNodeEditResult(duplicateNode.Id, LogicOperation.Or, "Bool"));
+
+            Assert.NotEmpty(duplicateErrors);
+
+            LogicNode danglingNode;
+            var danglingProject = BuildBooleanProject(out danglingNode);
+            var danglingSheet = danglingProject.Sheets[0];
+            var attachedPin = danglingNode.Pins.Single(pin =>
+                pin.Direction == PinDirection.Input && pin.Order == 1);
+            danglingSheet.Wires.Add(new Wire
+            {
+                SourceNodeId = danglingNode.Id,
+                SourcePinId = attachedPin.Id,
+                TargetNodeId = Guid.NewGuid(),
+                TargetPinId = Guid.NewGuid()
+            });
+
+            var danglingErrors = LogicNodeEditingLogic.ValidateCandidate(
+                danglingProject,
+                new LogicNodeEditResult(danglingNode.Id, LogicOperation.Or, "Bool"));
+
+            Assert.NotEmpty(danglingErrors);
+        }
+
+        [Fact]
         public void SwappingAndForOrKeepsEveryPinIdSoTheWiresStayAttached()
         {
             LogicNode node;
